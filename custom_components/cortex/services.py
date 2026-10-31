@@ -164,4 +164,5 @@ def async_register_services(hass: HomeAssistant) -> None:
 
 def async_unregister_services(hass: HomeAssistant) -> None:
     for name in SERVICES:
-        hass.services.async_remove(DOMAIN, name)
+        if hass.services.has_service(DOMAIN, name):
+            hass.services.async_remove(DOMAIN, name)

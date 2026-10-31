@@ -27,6 +27,12 @@ from .const import (
     CONF_DEDUPE,
     CONF_EV_GATE,
     CONF_EV_PLUG,
+    CONF_EV_SOC,
+    CONF_EV_TARGET,
+    CONF_HOLIDAYS,
+    CONF_PV_TODAY,
+    CONF_PV_TOMORROW,
+    CONF_SOC,
     CONF_QUIET_END,
     CONF_QUIET_START,
     DEFAULTS,
@@ -42,6 +48,10 @@ from .speech import Speaker
 
 _LOGGER = logging.getLogger(__name__)
 HEALTH_EVERY = timedelta(minutes=5)
+SOURCE_KEYS = (
+    CONF_SOC, CONF_PV_TODAY, CONF_PV_TOMORROW, CONF_EV_SOC, CONF_EV_PLUG,
+    CONF_EV_TARGET, CONF_HOLIDAYS,
+)
 LOW_BATTERY = 15
 
 
@@ -93,8 +103,31 @@ class Cortex:
         self._unsubs.append(
             async_track_time_change(self.hass, self._tick_minute, second=5)
         )
+        self._track_sources()
         self.refresh()
         self.hass.async_create_task(self.run_health())
+
+    def _track_sources(self) -> None:
+        """Refresh as soon as any energy input appears or changes.
+
+        Cortex can start before the battery, EV and forecast integrations, so
+        waiting for the minute tick leaves sensors unknown after a restart.
+        """
+        ids = sorted(
+            {
+                self.opts[key]
+                for key in SOURCE_KEYS
+                if self.opts.get(key)
+            }
+        )
+        if ids:
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, ids, self._on_source)
+            )
+
+    @callback
+    def _on_source(self, _event: Event) -> None:
+        self.refresh()
 
     @callback
     def async_stop(self) -> None:

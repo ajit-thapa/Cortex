@@ -105,3 +105,12 @@ async def test_options_flow(hass: HomeAssistant):
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"fit_evening": 30.0})
     assert result["type"] == "create_entry"
     assert entry.options["fit_evening"] == 30.0
+
+
+async def test_sensors_fill_when_sources_appear_after_start(hass: HomeAssistant):
+    entry = await _setup(hass)  # nothing exists yet, like a restart race
+    assert hass.states.get("sensor.cortex_battery_stored").state == "unknown"
+    hass.states.async_set("sensor.neovolt_online_soc", "50")
+    await hass.async_block_till_done()
+    assert float(hass.states.get("sensor.cortex_battery_stored").state) == 25.0
+    assert hass.states.get(f"sensor.cortex_storage_summary").state.startswith("Battery 25.0/50")
