@@ -1,0 +1,147 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Cortex",
+        "description": "A shared brain for voice, memory, safety and energy. Speakers and energy entities are set afterwards under Configure.",
+        "data": {
+          "name": "Name"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Cortex is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cortex",
+        "menu_options": {
+          "general": "Voice and rules",
+          "energy": "Energy and EV",
+          "tariff": "Tariff rates"
+        }
+      },
+      "general": {
+        "title": "Voice and rules",
+        "data": {
+          "speakers": "Speakers (satellites or media players)",
+          "tts_engine": "Text-to-speech engine (for media players)",
+          "notify": "Phone notify entity",
+          "motion_sensors": "Motion sensors (to pick the room)",
+          "conversation_agent": "Conversation agent for ask",
+          "quiet_start": "Quiet hours start",
+          "quiet_end": "Quiet hours end",
+          "banned_words": "Banned words (comma separated)",
+          "dedupe_minutes": "Repeat suppression"
+        }
+      },
+      "energy": {
+        "title": "Energy and EV",
+        "data": {
+          "battery_soc": "Battery state of charge",
+          "dispatch_mode": "Dispatch mode select",
+          "dispatch_power": "Dispatch power number",
+          "dispatch_duration": "Dispatch duration number",
+          "charge_target": "Charge target number",
+          "discharge_target": "Discharge target number",
+          "stop_button": "Stop force charge/discharge button",
+          "pv_forecast_today": "Solar forecast today (kWh)",
+          "pv_forecast_tomorrow": "Solar forecast tomorrow",
+          "ev_soc": "EV battery level",
+          "ev_plug": "EV plugged-in sensor",
+          "ev_target_soc": "EV target charge",
+          "ev_start_button": "EV start charging button",
+          "holiday_calendar": "Public holiday calendar",
+          "battery_kwh": "Battery capacity",
+          "ev_kwh": "EV capacity",
+          "battery_reserve_pct": "Battery reserve",
+          "low_solar_kwh": "Low solar day below",
+          "topup_kw": "Top-up power",
+          "export_kw": "Export power",
+          "export_min_soc": "Only export above",
+          "export_floor_soc": "Export down to",
+          "auto_topup": "Run the grid top-up automatically",
+          "auto_export": "Run the evening export automatically",
+          "ev_gate": "Gate EV charging to the cheap window"
+        }
+      },
+      "tariff": {
+        "title": "Tariff rates",
+        "data": {
+          "rate_shoulder": "Shoulder rate",
+          "rate_off_peak": "Off-peak rate",
+          "rate_high_peak": "Peak rate (Nov-Mar)",
+          "rate_low_peak": "Peak rate (Apr-Oct)",
+          "supply_charge": "Daily supply charge",
+          "fit_evening": "Feed-in, evening",
+          "fit_morning": "Feed-in, morning",
+          "fit_other": "Feed-in, other times"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "period": {
+        "name": "Tariff period"
+      },
+      "import_rate": {
+        "name": "Import rate"
+      },
+      "feed_in_rate": {
+        "name": "Feed-in rate"
+      },
+      "next_period": {
+        "name": "Next period"
+      },
+      "next_change": {
+        "name": "Next change"
+      },
+      "export_to_cover": {
+        "name": "Export to cover daily charge"
+      },
+      "pv_shortfall": {
+        "name": "Solar shortfall"
+      },
+      "solar_day": {
+        "name": "Solar day"
+      },
+      "battery_stored": {
+        "name": "Battery stored"
+      },
+      "battery_usable": {
+        "name": "Battery usable"
+      },
+      "battery_room": {
+        "name": "Battery room left"
+      },
+      "ev_stored": {
+        "name": "EV stored"
+      },
+      "ev_room": {
+        "name": "EV room left"
+      },
+      "storage_summary": {
+        "name": "Storage summary"
+      },
+      "summary": {
+        "name": "Energy summary"
+      },
+      "memories": {
+        "name": "Memories"
+      },
+      "last_spoken": {
+        "name": "Last spoken"
+      },
+      "likely_room": {
+        "name": "Likely room"
+      },
+      "health_issues": {
+        "name": "House health issues"
+      }
+    }
+  },
+  "services": {}
+}

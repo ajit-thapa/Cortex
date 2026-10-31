@@ -1,0 +1,21 @@
+{
+  "domain": "cortex",
+  "name": "Cortex",
+  "after_dependencies": [
+    "assist_satellite",
+    "conversation",
+    "frontend",
+    "http",
+    "panel_custom",
+    "tts"
+  ],
+  "codeowners": ["@ajit-thapa"],
+  "config_flow": true,
+  "dependencies": ["websocket_api"],
+  "documentation": "https://github.com/ajit-thapa/Cortex",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/ajit-thapa/Cortex/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

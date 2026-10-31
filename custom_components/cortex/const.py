@@ -1,0 +1,111 @@
+"""Constants and option defaults for Cortex."""
+
+from __future__ import annotations
+
+DOMAIN = "cortex"
+STORAGE_VERSION = 1
+SIGNAL_UPDATE = f"{DOMAIN}_update"
+EVENT_SPOKEN = f"{DOMAIN}_spoken"
+
+# --- general ---------------------------------------------------------------
+CONF_SPEAKERS = "speakers"
+CONF_TTS_ENGINE = "tts_engine"
+CONF_NOTIFY = "notify"
+CONF_MOTION = "motion_sensors"
+CONF_QUIET_START = "quiet_start"
+CONF_QUIET_END = "quiet_end"
+CONF_BANNED = "banned_words"
+CONF_DEDUPE = "dedupe_minutes"
+CONF_AGENT = "conversation_agent"
+
+# --- energy entities -------------------------------------------------------
+CONF_SOC = "battery_soc"
+CONF_MODE = "dispatch_mode"
+CONF_POWER = "dispatch_power"
+CONF_DURATION = "dispatch_duration"
+CONF_CHARGE_TARGET = "charge_target"
+CONF_DISCHARGE_TARGET = "discharge_target"
+CONF_STOP = "stop_button"
+CONF_PV_TODAY = "pv_forecast_today"
+CONF_PV_TOMORROW = "pv_forecast_tomorrow"
+CONF_EV_SOC = "ev_soc"
+CONF_EV_PLUG = "ev_plug"
+CONF_EV_TARGET = "ev_target_soc"
+CONF_EV_START = "ev_start_button"
+CONF_HOLIDAYS = "holiday_calendar"
+
+# --- energy numbers / switches --------------------------------------------
+CONF_BATTERY_KWH = "battery_kwh"
+CONF_EV_KWH = "ev_kwh"
+CONF_RESERVE = "battery_reserve_pct"
+CONF_LOW_SOLAR = "low_solar_kwh"
+CONF_TOPUP_KW = "topup_kw"
+CONF_EXPORT_KW = "export_kw"
+CONF_EXPORT_MIN_SOC = "export_min_soc"
+CONF_EXPORT_FLOOR = "export_floor_soc"
+CONF_AUTO_TOPUP = "auto_topup"
+CONF_AUTO_EXPORT = "auto_export"
+CONF_EV_GATE = "ev_gate"
+CONF_EV_WINDOW = "ev_window"
+
+# --- tariff ---------------------------------------------------------------
+CONF_RATE_HIGH_PEAK = "rate_high_peak"
+CONF_RATE_LOW_PEAK = "rate_low_peak"
+CONF_RATE_SHOULDER = "rate_shoulder"
+CONF_RATE_OFF_PEAK = "rate_off_peak"
+CONF_SUPPLY = "supply_charge"
+CONF_FIT_EVENING = "fit_evening"
+CONF_FIT_MORNING = "fit_morning"
+CONF_FIT_OTHER = "fit_other"
+
+DEFAULTS: dict[str, object] = {
+    CONF_SPEAKERS: [],
+    CONF_MOTION: [],
+    CONF_QUIET_START: "22:00:00",
+    CONF_QUIET_END: "07:00:00",
+    CONF_BANNED: "",
+    CONF_DEDUPE: 30,
+    CONF_NOTIFY: "notify.iphone_2",
+    CONF_SOC: "sensor.neovolt_online_soc",
+    CONF_MODE: "select.neovolt_neovoltlocal_dispatch_mode",
+    CONF_POWER: "number.neovolt_neovoltlocal_dispatch_power",
+    CONF_DURATION: "number.neovolt_neovoltlocal_dispatch_duration",
+    CONF_CHARGE_TARGET: "number.neovolt_neovoltlocal_dispatch_charge_target_soc",
+    CONF_DISCHARGE_TARGET: "number.neovolt_neovoltlocal_dispatch_discharge_target_soc",
+    CONF_STOP: "button.neovolt_neovoltlocal_stop_force_charge_discharge",
+    CONF_PV_TODAY: "sensor.pv_forecast_ingleburn",
+    CONF_PV_TOMORROW: "sensor.pv_forecast_forecast",
+    CONF_EV_SOC: "sensor.byd_sealion_7_battery_level",
+    CONF_EV_PLUG: "binary_sensor.byd_sealion_7_plug",
+    CONF_EV_TARGET: "input_number.byd_target_soc",
+    CONF_EV_START: "button.byd_sealion_7_start_charging",
+    CONF_HOLIDAYS: "calendar.australia_nsw",
+    CONF_BATTERY_KWH: 50.0,
+    CONF_EV_KWH: 82.5,
+    CONF_RESERVE: 20.0,
+    CONF_LOW_SOLAR: 30.0,
+    CONF_TOPUP_KW: 5.0,
+    CONF_EXPORT_KW: 7.0,
+    CONF_EXPORT_MIN_SOC: 35.0,
+    CONF_EXPORT_FLOOR: 30.0,
+    CONF_AUTO_TOPUP: False,
+    CONF_AUTO_EXPORT: False,
+    CONF_EV_GATE: False,
+    CONF_RATE_HIGH_PEAK: 41.91,
+    CONF_RATE_LOW_PEAK: 42.416,
+    CONF_RATE_SHOULDER: 11.11,
+    CONF_RATE_OFF_PEAK: 32.12,
+    CONF_SUPPLY: 166.617,
+    CONF_FIT_EVENING: 28.0,
+    CONF_FIT_MORNING: 3.0,
+    CONF_FIT_OTHER: 3.0,
+}
+
+SAFETY_CLASSES = {
+    "smoke": "has detected smoke",
+    "carbon_monoxide": "has detected carbon monoxide",
+    "gas": "has detected gas",
+    "moisture": "has detected water",
+    "tamper": "has been tampered with",
+    "safety": "has raised a safety alert",
+}

@@ -1,0 +1,60 @@
+say:
+  fields:
+    message: {required: true, selector: {text: {}}}
+    urgent: {default: false, selector: {boolean: {}}}
+    area: {selector: {area: {}}}
+ask:
+  fields:
+    question: {required: true, selector: {text: {}}}
+    agent_id: {selector: {conversation_agent: {}}}
+    speak: {default: false, selector: {boolean: {}}}
+remember:
+  fields:
+    text: {required: true, selector: {text: {}}}
+    category:
+      default: fact
+      selector: {select: {options: [fact, preference, person, place, routine, note]}}
+    source: {selector: {text: {}}}
+recall:
+  fields:
+    query: {selector: {text: {}}}
+    limit: {default: 6, selector: {number: {min: 1, max: 30}}}
+forget:
+  fields:
+    memory: {required: true, selector: {text: {}}}
+remind:
+  fields:
+    message: {required: true, selector: {text: {}}}
+    at: {selector: {datetime: {}}}
+    in_minutes: {default: 30, selector: {number: {min: 1, max: 43200, unit_of_measurement: min}}}
+cancel_reminder:
+  fields:
+    id: {required: true, selector: {text: {}}}
+watch:
+  fields:
+    entity_id: {required: true, selector: {entity: {}}}
+    message:
+      required: true
+      example: "{name} is now {state}"
+      selector: {text: {}}
+    to_state: {selector: {text: {}}}
+    cooldown: {default: 600, selector: {number: {min: 0, max: 86400, unit_of_measurement: s}}}
+    urgent: {default: false, selector: {boolean: {}}}
+unwatch:
+  fields:
+    id: {required: true, selector: {text: {}}}
+briefing:
+  fields:
+    speak: {default: true, selector: {boolean: {}}}
+hush:
+  fields:
+    minutes: {default: 60, selector: {number: {min: 0, max: 1440, unit_of_measurement: min}}}
+run_checks:
+energy_action:
+  fields:
+    action:
+      required: true
+      selector: {select: {options: [topup, export, stop]}}
+    force:
+      default: false
+      selector: {boolean: {}}
