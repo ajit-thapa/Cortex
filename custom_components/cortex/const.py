@@ -18,6 +18,27 @@ CONF_BANNED = "banned_words"
 CONF_DEDUPE = "dedupe_minutes"
 CONF_AGENT = "conversation_agent"
 
+# --- briefing, reports, AI -------------------------------------------------
+CONF_BRIEF_MORNING = "briefing_morning"
+CONF_BRIEF_EVENING = "briefing_evening"
+CONF_BRIEF_SECTIONS = "briefing_sections"
+CONF_BRIEF_AI = "briefing_ai"
+CONF_WEATHER = "weather_entity"
+CONF_WEEKLY_TIME = "weekly_time"
+CONF_AUTO_BACKUP = "auto_backup"
+CONF_AI_TASK = "ai_task"
+CONF_AI_PER_HOUR = "ai_per_hour"
+
+# --- security, visitors, learning ------------------------------------------
+CONF_NIGHT_WATCH = "night_watch"
+CONF_NIGHT_START = "night_start"
+CONF_NIGHT_END = "night_end"
+CONF_DOORBELL = "doorbell_entities"
+CONF_DOORBELL_CAMERA = "doorbell_camera"
+CONF_LEARN = "learn_entities"
+
+BRIEF_SECTIONS = ["energy", "weather", "reminders", "health", "security", "parcels"]
+
 # --- energy entities -------------------------------------------------------
 CONF_SOC = "battery_soc"
 CONF_MODE = "dispatch_mode"
@@ -61,6 +82,21 @@ CONF_FIT_OTHER = "fit_other"
 DEFAULTS: dict[str, object] = {
     CONF_SPEAKERS: [],
     CONF_MOTION: [],
+    CONF_BRIEF_MORNING: "07:30:00",
+    CONF_BRIEF_EVENING: None,
+    CONF_BRIEF_SECTIONS: ["energy", "weather", "reminders", "health", "security", "parcels"],
+    CONF_BRIEF_AI: False,
+    CONF_WEATHER: None,
+    CONF_WEEKLY_TIME: "18:00:00",
+    CONF_AUTO_BACKUP: True,
+    CONF_AI_TASK: None,
+    CONF_AI_PER_HOUR: 12,
+    CONF_NIGHT_WATCH: True,
+    CONF_NIGHT_START: "23:00:00",
+    CONF_NIGHT_END: "06:00:00",
+    CONF_DOORBELL: [],
+    CONF_DOORBELL_CAMERA: None,
+    CONF_LEARN: [],
     CONF_QUIET_START: "22:00:00",
     CONF_QUIET_END: "07:00:00",
     CONF_BANNED: "",

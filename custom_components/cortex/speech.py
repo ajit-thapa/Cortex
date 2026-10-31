@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 MOTION_WINDOW = timedelta(minutes=10)
+VOICE_WINDOW = timedelta(minutes=5)
 
 
 class Speaker:
@@ -30,6 +31,7 @@ class Speaker:
         self.brain = brain
         self.gate = gate
         self.log: deque[dict] = deque(maxlen=50)
+        self._voice: tuple[object, str] | None = None
 
     def _area_of(self, entity_id: str) -> str | None:
         reg = er.async_get(self.hass)
@@ -43,9 +45,17 @@ class Speaker:
             return device.area_id if device else None
         return None
 
+    def note_voice(self, satellite: str) -> None:
+        """Remember where someone last talked to a voice satellite."""
+        area = self._area_of(satellite)
+        if area:
+            self._voice = (dt_util.utcnow(), area)
+
     def likely_area(self) -> str | None:
-        """Area with the most recent motion inside the window."""
+        """Area of recent voice activity, else the area with the latest motion."""
         now = dt_util.utcnow()
+        if self._voice and now - self._voice[0] <= VOICE_WINDOW:
+            return self._voice[1]
         best: tuple[object, str] | None = None
         for entity_id in self.brain.opts.get(CONF_MOTION) or []:
             state = self.hass.states.get(entity_id)
@@ -94,6 +104,11 @@ class Speaker:
             "pushed": pushed,
         }
         self.log.appendleft(record)
+        if record["spoken"]:
+            self.brain.record("spoken")
+            self.brain.log("speech", record["text"])
+        elif not verdict.speak:
+            self.brain.record("suppressed")
         self.hass.bus.async_fire(EVENT_SPOKEN, record)
         self.brain.notify_update()
         return record

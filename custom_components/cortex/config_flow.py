@@ -38,6 +38,27 @@ SECTIONS: dict[str, dict[str, Any]] = {
         CONF_BANNED: sel.TextSelector(),
         CONF_DEDUPE: _num(0, 240, 1, "min"),
     },
+    "briefing": {
+        CONF_BRIEF_MORNING: sel.TimeSelector(),
+        CONF_BRIEF_EVENING: sel.TimeSelector(),
+        CONF_BRIEF_SECTIONS: sel.SelectSelector(
+            sel.SelectSelectorConfig(options=BRIEF_SECTIONS, multiple=True, mode=sel.SelectSelectorMode.LIST, translation_key="briefing_sections")
+        ),
+        CONF_BRIEF_AI: sel.BooleanSelector(),
+        CONF_WEATHER: _entity("weather"),
+        CONF_WEEKLY_TIME: sel.TimeSelector(),
+        CONF_AUTO_BACKUP: sel.BooleanSelector(),
+    },
+    "house": {
+        CONF_AI_TASK: _entity("ai_task"),
+        CONF_AI_PER_HOUR: _num(0, 120, 1, "calls/h"),
+        CONF_NIGHT_WATCH: sel.BooleanSelector(),
+        CONF_NIGHT_START: sel.TimeSelector(),
+        CONF_NIGHT_END: sel.TimeSelector(),
+        CONF_DOORBELL: _entity("binary_sensor", "event", multiple=True),
+        CONF_DOORBELL_CAMERA: _entity("camera"),
+        CONF_LEARN: _entity("light", "switch", "lock", "cover", "binary_sensor", multiple=True),
+    },
     "energy": {
         CONF_SOC: _entity("sensor"),
         CONF_MODE: _entity("select"),
@@ -80,6 +101,8 @@ CLEARABLE = {
     CONF_TTS_ENGINE, CONF_NOTIFY, CONF_AGENT, CONF_MODE, CONF_POWER, CONF_DURATION,
     CONF_CHARGE_TARGET, CONF_DISCHARGE_TARGET, CONF_STOP, CONF_PV_TODAY, CONF_PV_TOMORROW,
     CONF_EV_SOC, CONF_EV_PLUG, CONF_EV_TARGET, CONF_EV_START, CONF_HOLIDAYS, CONF_SOC,
+    CONF_BRIEF_MORNING, CONF_BRIEF_EVENING, CONF_WEATHER, CONF_WEEKLY_TIME,
+    CONF_AI_TASK, CONF_DOORBELL_CAMERA,
 }
 
 
@@ -125,7 +148,7 @@ class CortexOptionsFlow(OptionsFlow):
         return {**DEFAULTS, **self.config_entry.options}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["general", "energy", "tariff"])
+        return self.async_show_menu(step_id="init", menu_options=["general", "briefing", "house", "energy", "tariff"])
 
     async def _section(self, section: str, user_input: dict[str, Any] | None) -> ConfigFlowResult:
         if user_input is not None:
@@ -136,6 +159,12 @@ class CortexOptionsFlow(OptionsFlow):
 
     async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._section("general", user_input)
+
+    async def async_step_briefing(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._section("briefing", user_input)
+
+    async def async_step_house(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._section("house", user_input)
 
     async def async_step_energy(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._section("energy", user_input)

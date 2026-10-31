@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timedelta
 import logging
@@ -10,6 +11,7 @@ import uuid
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_point_in_time,
@@ -21,6 +23,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_AGENT,
+    CONF_AI_PER_HOUR,
+    CONF_AI_TASK,
     CONF_AUTO_EXPORT,
     CONF_AUTO_TOPUP,
     CONF_BANNED,
@@ -41,7 +46,16 @@ from .const import (
     SIGNAL_UPDATE,
     STORAGE_VERSION,
 )
+from .backup import Backup
+from .briefing import Briefing
 from .energy import EnergyBrain
+from .heating import Heating
+from .learning import Learning
+from .motion_lights import MotionLights
+from .routines import Routines
+from .security import Security
+from .timeline import Timeline
+from .visitors import PROMPT as LOOK_PROMPT, Visitors
 from .gate import SpeechGate, parse_time
 from .memory import MemoryBook
 from .speech import Speaker
@@ -53,6 +67,7 @@ SOURCE_KEYS = (
     CONF_EV_TARGET, CONF_HOLIDAYS,
 )
 LOW_BATTERY = 15
+VOICE_STATES = {"listening", "processing", "responding"}
 
 
 class Cortex:
@@ -71,11 +86,28 @@ class Cortex:
         self.gate = SpeechGate()
         self.speaker = Speaker(hass, self, self.gate)
         self.energy = EnergyBrain(hass, self)
+        self.timeline = Timeline(self)
+        self.routines = Routines(self)
+        self.learning = Learning(self)
+        self.motion_lights = MotionLights(self)
+        self.heating = Heating(self)
+        self.security = Security(self)
+        self.visitors = Visitors(self)
+        self.briefing = Briefing(self)
+        self.backup = Backup(self)
+        self._ai_calls: deque[datetime] = deque()
         self.snapshot: dict[str, Any] = {}
         self.health: list[str] = []
         self._unsubs: list[Callable[[], None]] = []
         self._timers: dict[str, Callable[[], None]] = {}
         self._known_issues: set[str] = set()
+
+    @property
+    def features(self):
+        return (
+            self.timeline, self.routines, self.learning, self.motion_lights,
+            self.heating, self.security, self.visitors, self.briefing, self.backup,
+        )
 
     # ---- lifecycle ------------------------------------------------------
     def load_options(self) -> None:
@@ -93,6 +125,9 @@ class Cortex:
         self.book = MemoryBook.from_data(data.get("memory"))
         self.watches = list(data.get("watches", []))
         self.reminders = list(data.get("reminders", []))
+        saved = data.get("features", {})
+        for feature in self.features:
+            feature.load(saved.get(feature.name))
         self._schedule_reminders()
         self._track_watches()
         self._schedule_energy()
@@ -104,6 +139,9 @@ class Cortex:
             async_track_time_change(self.hass, self._tick_minute, second=5)
         )
         self._track_sources()
+        self._track_voice()
+        for feature in self.features:
+            await feature.start()
         self.refresh()
         self.hass.async_create_task(self.run_health())
 
@@ -131,6 +169,8 @@ class Cortex:
 
     @callback
     def async_stop(self) -> None:
+        for feature in self.features:
+            feature.stop()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -144,7 +184,90 @@ class Cortex:
             "memory": self.book.to_data(),
             "watches": self.watches,
             "reminders": self.reminders,
+            "features": {f.name: f.dump() for f in self.features},
         }
+
+    def export_data(self) -> dict[str, Any]:
+        return self._data()
+
+    async def import_data(self, data: dict[str, Any]) -> None:
+        """Replace everything remembered with ``data`` (from a backup)."""
+        for feature in self.features:
+            feature.stop()
+        for unsub in self._timers.values():
+            unsub()
+        self._timers.clear()
+        self.book = MemoryBook.from_data(data.get("memory"))
+        self.watches = list(data.get("watches", []))
+        self.reminders = list(data.get("reminders", []))
+        saved = data.get("features", {})
+        for feature in self.features:
+            feature.load(saved.get(feature.name))
+        self._schedule_reminders()
+        self._track_watches()
+        for feature in self.features:
+            await feature.start()
+        self.save()
+
+    # ---- bookkeeping ----------------------------------------------------
+    def log(self, kind: str, text: str) -> None:
+        self.timeline.add(kind, text)
+
+    def record(self, key: str, value: float = 1) -> None:
+        self.timeline.record(key, value)
+
+    # ---- AI helpers (always through the user's own HA agents) -----------
+    def ai_allowed(self) -> bool:
+        """True if another model call fits the hourly budget; counts the call."""
+        now = dt_util.utcnow()
+        while self._ai_calls and now - self._ai_calls[0] > timedelta(hours=1):
+            self._ai_calls.popleft()
+        if len(self._ai_calls) >= int(self.opts.get(CONF_AI_PER_HOUR) or 0):
+            return False
+        self._ai_calls.append(now)
+        return True
+
+    async def ask_agent(self, prompt: str) -> str:
+        data: dict[str, Any] = {"text": prompt}
+        if self.opts.get(CONF_AGENT):
+            data["agent_id"] = self.opts[CONF_AGENT]
+        result = await self.hass.services.async_call(
+            "conversation", "process", data, blocking=True, return_response=True
+        )
+        return (
+            ((result or {}).get("response", {}).get("speech", {}).get("plain", {}).get("speech", ""))
+            or ""
+        ).strip()
+
+    async def look(self, camera: str, question: str | None) -> str:
+        """Describe what a camera sees using the configured AI Task entity."""
+        task = self.opts.get(CONF_AI_TASK)
+        if not task:
+            raise HomeAssistantError("No AI Task entity configured")
+        if not self.ai_allowed():
+            raise HomeAssistantError("AI call budget used up for this hour")
+        spot = self.visitors.spots.get(camera)
+        where = f" ({spot})" if spot else ""
+        instructions = (
+            LOOK_PROMPT.format(where=where)
+            if question is None
+            else f"This is a still image from a home camera{where}. {question} Answer briefly."
+        )
+        result = await self.hass.services.async_call(
+            "ai_task",
+            "generate_data",
+            {
+                "entity_id": task,
+                "task_name": "cortex look",
+                "instructions": instructions,
+                "attachments": [
+                    {"media_content_id": f"media-source://camera/{camera}", "media_content_type": "image/jpeg"}
+                ],
+            },
+            blocking=True,
+            return_response=True,
+        )
+        return str((result or {}).get("data", "")).strip()
 
     @callback
     def save(self) -> None:
@@ -155,6 +278,12 @@ class Cortex:
     @callback
     def refresh(self) -> None:
         self.snapshot = self.energy.snapshot()
+        snap = self.snapshot
+        if snap.get("battery_soc") is not None:
+            self.timeline.record("soc_min", snap["battery_soc"])
+            self.timeline.record("soc_max", snap["battery_soc"])
+        if snap.get("pv_today") is not None:
+            self.timeline.record("pv_forecast", snap["pv_today"])
         self.notify_update()
 
     @callback
@@ -201,6 +330,7 @@ class Cortex:
             self._timers.pop(item["id"], None)
             if item in self.reminders:
                 self.reminders.remove(item)
+            self.record("reminders")
             self.save()
             await self.speaker.say(f"Reminder: {item['message']}", urgent=True, push=True)
 
@@ -225,6 +355,8 @@ class Cortex:
         to_state: str | None = None,
         cooldown: int = 600,
         urgent: bool = False,
+        ai: bool = False,
+        camera: str | None = None,
     ) -> dict[str, Any]:
         item = {
             "id": uuid.uuid4().hex[:8],
@@ -233,6 +365,8 @@ class Cortex:
             "to_state": to_state,
             "cooldown": cooldown,
             "urgent": urgent,
+            "ai": ai,
+            "camera": camera,
             "last": None,
         }
         self.watches.append(item)
@@ -275,6 +409,20 @@ class Cortex:
             item["last"] = now.isoformat()
             name = new.attributes.get("friendly_name", new.entity_id)
             text = item["message"].format(name=name, state=new.state)
+            if item.get("camera"):
+                try:
+                    text += " " + (await self.look(item["camera"], "What is happening? One short sentence.")).rstrip(".") + "."
+                except HomeAssistantError:
+                    pass
+            if item.get("ai") and self.ai_allowed():
+                try:
+                    remark = await self.ask_agent(
+                        f"In one short, calm sentence, add a helpful remark about this household alert: {text}"
+                    )
+                    if remark:
+                        text += " " + remark
+                except HomeAssistantError:
+                    pass
             self.save()
             await self.speaker.say(text, urgent=item["urgent"])
 
@@ -332,6 +480,7 @@ class Cortex:
         new, old = event.data.get("new_state"), event.data.get("old_state")
         if new is None or new.state != "on" or (old is not None and old.state == "on"):
             return
+        self.record("alerts")
         phrase = SAFETY_CLASSES.get(new.attributes.get("device_class", ""), "has raised an alert")
         name = new.attributes.get("friendly_name", new.entity_id)
         await self.speaker.say(f"Warning. {name} {phrase}.", urgent=True, push=True)
@@ -371,25 +520,16 @@ class Cortex:
 
     # ---- briefing -------------------------------------------------------
     def briefing_text(self) -> str:
-        self.refresh()
-        snap, now = self.snapshot, dt_util.now()
-        hour = now.hour
-        greet = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
-        parts = [f"{greet}."]
-        parts.append(
-            f"Power is {snap['period'].replace('_', ' ')} at {snap['import_rate']:g} cents, "
-            f"changing to {snap['next_period'].replace('_', ' ')} at "
-            f"{snap['next_change'].astimezone().strftime('%-I:%M %p')}."
-        )
-        if snap["pv_today"] is not None:
-            parts.append(f"Solar forecast is {snap['pv_today']:.0f} kilowatt hours, a {snap['solar_day']} day.")
-        if snap["battery_soc"] is not None:
-            parts.append(f"The battery is at {snap['battery_soc']:.0f} percent.")
-        if snap["pv_shortfall"] is not None and snap["pv_shortfall"] > 0:
-            parts.append(f"Solar is short by {snap['pv_shortfall']:.0f} kilowatt hours, so a grid top-up is likely.")
-        today = [r for r in self.reminders if (dt_util.parse_datetime(r["at"]) or now).date() == now.date()]
-        if today:
-            parts.append("Reminders today: " + "; ".join(r["message"] for r in today) + ".")
-        if self.health:
-            parts.append(f"{len(self.health)} things need attention in the house.")
-        return " ".join(parts)
+        return self.briefing.build()
+
+    # ---- voice activity -------------------------------------------------
+    def _track_voice(self) -> None:
+        ids = [s.entity_id for s in self.hass.states.async_all("assist_satellite")]
+        if ids:
+            self._unsubs.append(async_track_state_change_event(self.hass, ids, self._on_voice))
+
+    @callback
+    def _on_voice(self, event: Event) -> None:
+        new = event.data.get("new_state")
+        if new is not None and new.state in VOICE_STATES:
+            self.speaker.note_voice(new.entity_id)

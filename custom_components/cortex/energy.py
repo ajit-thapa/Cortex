@@ -224,6 +224,9 @@ class EnergyBrain:
                 if short is not None
                 else "Grid top-up started."
             )
+        if ok:
+            self.brain.record("energy_actions")
+            self.brain.log("energy", "battery action started")
         return "started" if ok else "failed"
 
     async def start_export(self, force: bool = False) -> str:
@@ -245,6 +248,9 @@ class EnergyBrain:
             await self.brain.speaker.push(
                 f"Evening export started at {plan.fit_evening:g}c/kWh."
             )
+        if ok:
+            self.brain.record("energy_actions")
+            self.brain.log("energy", "battery action started")
         return "started" if ok else "failed"
 
     async def stop(self, only_mode: str | None = None) -> str:

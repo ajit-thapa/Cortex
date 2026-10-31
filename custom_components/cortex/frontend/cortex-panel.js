@@ -18,12 +18,22 @@ class CortexPanel extends HTMLElement {
   async _load() {
     try {
       this._data = await this._hass.callWS({ type: "cortex/overview" });
+      // Do not wipe what the user is typing.
+      const a = this._root.activeElement;
+      if (a && (a.tagName === "INPUT" || a.tagName === "SELECT")) return;
       this._render();
     } catch (e) {
       this._root.querySelector("#body").textContent = "Cortex is not loaded: " + (e.message || e.code);
     }
   }
   async _ws(msg) { await this._hass.callWS(msg); await this._load(); }
+  async _act(msg, note) {
+    try {
+      const r = await this._hass.callWS({ type: "cortex/action", ...msg });
+      if (note) this._note = note(r.result);
+    } catch (e) { this._note = "Failed: " + (e.message || e.code); }
+    await this._load();
+  }
 
   _build() {
     this._root = this.attachShadow({ mode: "open" });
@@ -82,6 +92,29 @@ class CortexPanel extends HTMLElement {
       <button class="ghost" data-cancel="reminder:${r.id}">✕</button></span></div>`).join("") || `<div class="muted">No reminders.</div>`;
     const wat = d.watches.map(w => `<div class="row"><span>${esc(w.entity_id)}${w.to_state ? " → " + esc(w.to_state) : ""}</span>
       <button class="ghost" data-cancel="watch:${w.id}">✕</button></div>`).join("") || `<div class="muted">No watches.</div>`;
+    const sug = (d.suggestions || []).map(x => `<div class="mem"><span>💡</span><span class="t">${esc(x.text)}</span>
+      <button data-acc="${x.id}">Automate</button><button class="ghost" data-dis="${x.id}">✕</button></div>`).join("")
+      || `<div class="muted">No suggestions yet. Cortex learns from the entities you list under Configure.</div>`;
+    const rout = (d.routines || []).map(r => `<div class="row"><span>${esc(r.name)}
+      <span class="muted">${r.schedule ? "at " + esc(r.schedule.at) + " " + esc(r.schedule.days) : r.on_state ? "when " + esc(r.on_state.entity_id) + " is " + esc(r.on_state.to) : "on demand"}</span></span>
+      <span><button data-run="${esc(r.name)}">Run</button><button class="ghost" data-delr="${esc(r.name)}">✕</button></span></div>`).join("")
+      || `<div class="muted">No routines. Ask the assistant to make one, or accept a suggestion.</div>`;
+    const sec = d.security || { ok: true, issues: [] };
+    const secHtml = sec.ok ? `<div class="row ok">Everything is shut and locked</div>`
+      : sec.issues.map(i => `<div class="row bad">${esc(i)}</div>`).join("");
+    const v = d.visitors || { log: [], parcels: 0, today: 0, spots: {}, cameras: [] };
+    const vlog = v.log.slice(0, 6).map(x => `<div class="row"><span>${esc(x.kind)}: ${esc(x.text)}</span>
+      <span class="muted">${x.time.slice(5, 16).replace("T", " ")}</span></div>`).join("") || `<div class="muted">No visitors yet.</div>`;
+    const cams = v.cameras.map(c => `<div class="row"><span class="muted">${esc(c)}</span>
+      <span><input data-spot="${esc(c)}" value="${esc(v.spots[c] || "")}" placeholder="e.g. front porch" size="14">
+      <button class="ghost" data-savespot="${esc(c)}">Save</button></span></div>`).join("");
+    const wk = d.week || {};
+    const week = Object.keys(wk).sort().map(k => `<div class="row"><span class="muted">${esc(k.replace(/_/g, " "))}</span><b>${Number(wk[k]).toFixed(Number.isInteger(wk[k]) ? 0 : 1)}</b></div>`).join("")
+      || `<div class="muted">Nothing recorded yet.</div>`;
+    const tl = (d.timeline || []).slice(0, 12).map(x => `<div class="row"><span>${esc(x.text)}</span>
+      <span class="muted">${esc(x.kind)} · ${x.time.slice(5, 16).replace("T", " ")}</span></div>`).join("") || `<div class="muted">No events yet.</div>`;
+    const note = this._note ? `<div class="row ok">${esc(this._note)}</div>` : "";
+    this._note = null;
     body.innerHTML = `
       <div class="card"><h2>Power now</h2>
         <div class="row"><span class="pill" style="background:${PERIOD_COLOR[e.period]}">${e.period.replace("_", " ")}</span>
@@ -105,11 +138,36 @@ class CortexPanel extends HTMLElement {
         <div class="row"><input id="mtext" placeholder="Something worth remembering" style="flex:1">
         <select id="mcat">${d.categories.map(c => `<option>${c}</option>`).join("")}</select><button id="madd">Add</button></div>
         ${mem}</div>
+      <div class="card wide"><h2>Suggestions</h2>${sug}</div>
+      <div class="card"><h2>Routines</h2>${rout}</div>
+      <div class="card"><h2>Security</h2>${secHtml}
+        <div class="row"><span class="muted">Read-only sweep</span><button id="seccheck">Check now</button></div></div>
+      <div class="card"><h2>Visitors today: ${v.today} · parcels waiting: ${v.parcels}</h2>${vlog}
+        ${v.parcels ? `<div class="row"><span></span><button id="collected">Parcels collected</button></div>` : ""}
+        ${cams ? `<h2 style="margin-top:12px">Camera spots</h2>${cams}` : ""}</div>
+      <div class="card"><h2>This week</h2>${week}</div>
+      <div class="card wide"><h2>Timeline</h2>${tl}</div>
+      <div class="card"><h2>Tools</h2>${note}
+        <div class="row"><span>Backup now (${(d.backups || []).length} saved)</span><button id="backup">Back up</button></div>
+        <div class="row"><span>Weekly report</span><button id="weekly">Say it now</button></div></div>
       <div class="card wide"><h2>Recent speech</h2>${speech}</div>`;
     body.querySelectorAll("[data-del]").forEach(b => b.onclick = () => this._ws({ type: "cortex/memory_delete", id: b.dataset.del }));
     body.querySelectorAll("[data-cancel]").forEach(b => b.onclick = () => {
       const [kind, id] = b.dataset.cancel.split(":"); this._ws({ type: "cortex/cancel", kind, id });
     });
+    body.querySelectorAll("[data-acc]").forEach(b => b.onclick = () => this._act({ action: "accept_suggestion", id: b.dataset.acc }, () => "Routine created"));
+    body.querySelectorAll("[data-dis]").forEach(b => b.onclick = () => this._act({ action: "dismiss_suggestion", id: b.dataset.dis }));
+    body.querySelectorAll("[data-run]").forEach(b => b.onclick = () => this._act({ action: "run_routine", id: b.dataset.run }, () => "Ran " + b.dataset.run));
+    body.querySelectorAll("[data-delr]").forEach(b => b.onclick = () => this._act({ action: "delete_routine", id: b.dataset.delr }));
+    body.querySelectorAll("[data-savespot]").forEach(b => b.onclick = () => {
+      const i = body.querySelector(`[data-spot="${b.dataset.savespot}"]`);
+      this._act({ action: "set_spot", camera: b.dataset.savespot, spot: i.value.trim() }, () => "Saved");
+    });
+    const click = (id, fn) => { const el = body.querySelector(id); if (el) el.onclick = fn; };
+    click("#seccheck", () => this._act({ action: "security_check" }, r => r.text));
+    click("#collected", () => this._act({ action: "parcels_collected" }));
+    click("#backup", () => this._act({ action: "backup" }, r => "Saved " + String(r).split("/").pop()));
+    click("#weekly", () => this._act({ action: "weekly_report" }, () => "Weekly report sent"));
     body.querySelector("#hush").onclick = () => this._ws({ type: "cortex/hush", minutes: d.hushed ? 0 : 60 });
     body.querySelector("#madd").onclick = () => {
       const t = body.querySelector("#mtext").value.trim();

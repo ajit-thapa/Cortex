@@ -111,6 +111,30 @@ SENSORS: tuple[CortexSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT, value=lambda b: len(b.health),
         attrs=lambda b: {"issues": b.health},
     ),
+    CortexSensorDescription(
+        key="suggestions", translation_key="suggestions", icon="mdi:lightbulb-on-outline",
+        state_class=SensorStateClass.MEASUREMENT, value=lambda b: len(b.learning.pending),
+        attrs=lambda b: {"pending": [{"id": x["id"], "text": x["text"]} for x in b.learning.pending]},
+    ),
+    CortexSensorDescription(
+        key="visitors_today", translation_key="visitors_today", icon="mdi:doorbell-video",
+        state_class=SensorStateClass.MEASUREMENT, value=lambda b: b.visitors.today_count(),
+        attrs=lambda b: {"recent": b.visitors.log[-5:]},
+    ),
+    CortexSensorDescription(
+        key="parcels_waiting", translation_key="parcels_waiting", icon="mdi:package-variant-closed",
+        state_class=SensorStateClass.MEASUREMENT, value=lambda b: b.visitors.parcels_waiting,
+    ),
+    CortexSensorDescription(
+        key="security_issues", translation_key="security_issues", icon="mdi:shield-home-outline",
+        state_class=SensorStateClass.MEASUREMENT, value=lambda b: len(b.security.check()["issues"]),
+        attrs=lambda b: {"issues": b.security.check()["issues"]},
+    ),
+    CortexSensorDescription(
+        key="last_event", translation_key="last_event", icon="mdi:timeline-clock-outline",
+        value=lambda b: (b.timeline.items[0]["text"][:255] if b.timeline.items else None),
+        attrs=lambda b: {"timeline": list(b.timeline.items)[:15]},
+    ),
 )
 
 

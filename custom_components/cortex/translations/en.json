@@ -20,7 +20,9 @@
         "menu_options": {
           "general": "Voice and rules",
           "energy": "Energy and EV",
-          "tariff": "Tariff rates"
+          "tariff": "Tariff rates",
+          "briefing": "Briefings and reports",
+          "house": "House, cameras and learning"
         }
       },
       "general": {
@@ -78,6 +80,31 @@
           "fit_evening": "Feed-in, evening",
           "fit_morning": "Feed-in, morning",
           "fit_other": "Feed-in, other times"
+        }
+      },
+      "briefing": {
+        "title": "Briefings and reports",
+        "data": {
+          "briefing_morning": "Morning briefing time (clear to disable)",
+          "briefing_evening": "Evening briefing time (clear to disable)",
+          "briefing_sections": "Briefing sections",
+          "briefing_ai": "Let the AI polish the wording",
+          "weather_entity": "Weather entity",
+          "weekly_time": "Weekly report time, Sundays (clear to disable)",
+          "auto_backup": "Backup weekly with the report"
+        }
+      },
+      "house": {
+        "title": "House, cameras and learning",
+        "data": {
+          "ai_task": "AI Task entity (for camera looks)",
+          "ai_per_hour": "Max AI calls per hour",
+          "night_watch": "Night watch for doors and windows",
+          "night_start": "Night starts",
+          "night_end": "Night ends",
+          "doorbell_entities": "Doorbell or ring sensors",
+          "doorbell_camera": "Doorbell camera",
+          "learn_entities": "Entities to learn routines from"
         }
       }
     }
@@ -140,8 +167,35 @@
       },
       "health_issues": {
         "name": "House health issues"
+      },
+      "suggestions": {
+        "name": "Routine suggestions"
+      },
+      "visitors_today": {
+        "name": "Visitors today"
+      },
+      "parcels_waiting": {
+        "name": "Parcels waiting"
+      },
+      "security_issues": {
+        "name": "Security issues"
+      },
+      "last_event": {
+        "name": "Last event"
       }
     }
   },
-  "services": {}
+  "services": {},
+  "selector": {
+    "briefing_sections": {
+      "options": {
+        "energy": "Energy",
+        "weather": "Weather",
+        "reminders": "Reminders",
+        "health": "House health",
+        "security": "Security",
+        "parcels": "Parcels"
+      }
+    }
+  }
 }

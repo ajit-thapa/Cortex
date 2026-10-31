@@ -90,6 +90,28 @@ class EnergyStatusTool(_Tool):
         return s
 
 
+class RunRoutineTool(_Tool):
+    name = "run_routine"
+    description = "Run a saved Cortex routine by name (for example goodnight or leaving)."
+    parameters = vol.Schema({vol.Required("name"): str})
+
+    async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
+        name = tool_input.tool_args["name"]
+        if name not in self.brain.routines.items:
+            return {"error": f"No routine called {name}", "known": sorted(self.brain.routines.items)}
+        await self.brain.routines.run(name)
+        return {"ran": name}
+
+
+class SecurityCheckTool(_Tool):
+    name = "security_check"
+    description = "Read-only check for open doors and windows, unlocked locks and disarmed alarms."
+    parameters = vol.Schema({})
+
+    async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
+        return self.brain.security.check()
+
+
 class CortexAPI(llm.API):
     """The ``cortex`` LLM API."""
 
@@ -104,9 +126,15 @@ class CortexAPI(llm.API):
             ForgetTool(self.brain),
             RemindTool(self.brain),
             EnergyStatusTool(self.brain),
+            RunRoutineTool(self.brain),
+            SecurityCheckTool(self.brain),
         ]
+        if self.brain.routines.items:
+            prompt_routines = ", ".join(sorted(self.brain.routines.items))
         top = self.brain.book.recall("", 5)
         prompt = PROMPT
+        if self.brain.routines.items:
+            prompt += " Routines you can run: " + prompt_routines + "."
         if top:
             prompt += " Known so far: " + "; ".join(m.text for m in top) + "."
         return llm.APIInstance(api=self, api_prompt=prompt, llm_context=llm_context, tools=tools)

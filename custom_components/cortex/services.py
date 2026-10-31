@@ -18,7 +18,15 @@ from .runtime import Cortex
 SERVICES = (
     "say", "ask", "remember", "recall", "forget", "remind", "cancel_reminder",
     "watch", "unwatch", "briefing", "hush", "run_checks", "energy_action",
+    "save_routine", "delete_routine", "run_routine", "accept_suggestion",
+    "dismiss_suggestion", "add_motion_light", "remove_motion_light", "add_heating",
+    "remove_heating", "security_check", "look", "set_spot", "parcels_collected",
+    "weekly_report", "backup", "restore",
 )
+
+
+def _fields(data, *keys):
+    return {k: data[k] for k in keys if k in data}
 
 
 def _brain(hass: HomeAssistant) -> Cortex:
@@ -80,6 +88,8 @@ def async_register_services(hass: HomeAssistant) -> None:
             call.data.get("to_state"),
             call.data["cooldown"],
             call.data["urgent"],
+            call.data["ai"],
+            call.data.get("camera"),
         )
         return {"id": item["id"]}
 
@@ -113,6 +123,80 @@ def async_register_services(hass: HomeAssistant) -> None:
             result = await brain.energy.stop()
         brain.refresh()
         return {"result": result}
+
+    def _wrap(fn):
+        try:
+            return fn()
+        except (vol.Invalid, ValueError) as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def save_routine(call: ServiceCall) -> ServiceResponse:
+        d = _fields(call.data, "name", "steps", "schedule", "on_state", "enabled")
+        return {"routine": _wrap(lambda: _brain(hass).routines.save(d))}
+
+    async def delete_routine(call: ServiceCall) -> None:
+        if not _brain(hass).routines.delete(call.data["name"]):
+            raise HomeAssistantError("No such routine")
+
+    async def run_routine(call: ServiceCall) -> ServiceResponse:
+        return {"results": await _brain(hass).routines.run(call.data["name"])}
+
+    async def accept_suggestion(call: ServiceCall) -> ServiceResponse:
+        return {"routine": _wrap(lambda: _brain(hass).learning.accept(call.data["id"]))}
+
+    async def dismiss_suggestion(call: ServiceCall) -> None:
+        if not _brain(hass).learning.dismiss(call.data["id"]):
+            raise HomeAssistantError("No such suggestion")
+
+    async def add_motion_light(call: ServiceCall) -> ServiceResponse:
+        d = _fields(call.data, "name", "motion", "lights", "delay", "brightness", "only_dark", "lux_sensor", "lux_below")
+        return {"rule": _wrap(lambda: _brain(hass).motion_lights.save(d))}
+
+    async def remove_motion_light(call: ServiceCall) -> None:
+        if not _brain(hass).motion_lights.delete(call.data["name"]):
+            raise HomeAssistantError("No such motion light")
+
+    async def add_heating(call: ServiceCall) -> ServiceResponse:
+        d = _fields(call.data, "name", "climate", "target", "ready_by", "days", "hvac_mode", "persons", "rate")
+        return {"rule": _wrap(lambda: _brain(hass).heating.save(d))}
+
+    async def remove_heating(call: ServiceCall) -> None:
+        if not _brain(hass).heating.delete(call.data["name"]):
+            raise HomeAssistantError("No such heating rule")
+
+    async def security_check(call: ServiceCall) -> ServiceResponse:
+        brain = _brain(hass)
+        result = brain.security.check()
+        if call.data["speak"]:
+            await brain.speaker.say(result["text"])
+        return result
+
+    async def look(call: ServiceCall) -> ServiceResponse:
+        brain = _brain(hass)
+        text = await brain.look(call.data["camera"], call.data.get("question"))
+        if call.data["speak"] and text:
+            await brain.speaker.say(text)
+        return {"answer": text}
+
+    async def set_spot(call: ServiceCall) -> None:
+        _brain(hass).visitors.set_spot(call.data["camera"], call.data["spot"])
+
+    async def parcels_collected(call: ServiceCall) -> None:
+        _brain(hass).visitors.collected()
+
+    async def weekly_report(call: ServiceCall) -> ServiceResponse:
+        brain = _brain(hass)
+        if call.data["speak"]:
+            return {"text": await brain.briefing.weekly_report()}
+        return {"text": brain.briefing.weekly_text()}
+
+    async def backup(call: ServiceCall) -> ServiceResponse:
+        return {"path": await _brain(hass).backup.create()}
+
+    async def restore(call: ServiceCall) -> ServiceResponse:
+        brain = _brain(hass)
+        name = await brain.backup.restore(call.data.get("file"), call.data["with_options"])
+        return {"restored": name}
 
     S, R = SupportsResponse.NONE, SupportsResponse.OPTIONAL
     table = [
@@ -148,6 +232,8 @@ def async_register_services(hass: HomeAssistant) -> None:
             vol.Optional("to_state"): cv.string,
             vol.Optional("cooldown", default=600): vol.All(int, vol.Range(min=0)),
             vol.Optional("urgent", default=False): cv.boolean,
+            vol.Optional("ai", default=False): cv.boolean,
+            vol.Optional("camera"): cv.entity_id,
         }), R),
         ("unwatch", unwatch, vol.Schema({vol.Required("id"): cv.string}), S),
         ("briefing", briefing, vol.Schema({vol.Optional("speak", default=True): cv.boolean}), R),
@@ -157,6 +243,56 @@ def async_register_services(hass: HomeAssistant) -> None:
             vol.Required("action"): vol.In(["topup", "export", "stop"]),
             vol.Optional("force", default=False): cv.boolean,
         }), R),
+        ("save_routine", save_routine, vol.Schema({
+            vol.Required("name"): cv.string,
+            vol.Required("steps"): list,
+            vol.Optional("schedule"): dict,
+            vol.Optional("on_state"): dict,
+            vol.Optional("enabled"): cv.boolean,
+        }), SupportsResponse.OPTIONAL),
+        ("delete_routine", delete_routine, vol.Schema({vol.Required("name"): cv.string}), S),
+        ("run_routine", run_routine, vol.Schema({vol.Required("name"): cv.string}), SupportsResponse.OPTIONAL),
+        ("accept_suggestion", accept_suggestion, vol.Schema({vol.Required("id"): cv.string}), SupportsResponse.OPTIONAL),
+        ("dismiss_suggestion", dismiss_suggestion, vol.Schema({vol.Required("id"): cv.string}), S),
+        ("add_motion_light", add_motion_light, vol.Schema({
+            vol.Required("name"): cv.string,
+            vol.Required("motion"): cv.entity_ids,
+            vol.Required("lights"): cv.entity_ids,
+            vol.Optional("delay"): vol.All(int, vol.Range(min=10, max=7200)),
+            vol.Optional("brightness"): vol.All(int, vol.Range(min=1, max=100)),
+            vol.Optional("only_dark"): cv.boolean,
+            vol.Optional("lux_sensor"): cv.entity_id,
+            vol.Optional("lux_below"): vol.Coerce(float),
+        }), SupportsResponse.OPTIONAL),
+        ("remove_motion_light", remove_motion_light, vol.Schema({vol.Required("name"): cv.string}), S),
+        ("add_heating", add_heating, vol.Schema({
+            vol.Required("name"): cv.string,
+            vol.Required("climate"): cv.entity_id,
+            vol.Required("target"): vol.Coerce(float),
+            vol.Required("ready_by"): cv.string,
+            vol.Optional("days"): vol.In(["daily", "weekdays", "weekends"]),
+            vol.Optional("hvac_mode"): cv.string,
+            vol.Optional("persons"): cv.entity_ids,
+            vol.Optional("rate"): vol.Coerce(float),
+        }), SupportsResponse.OPTIONAL),
+        ("remove_heating", remove_heating, vol.Schema({vol.Required("name"): cv.string}), S),
+        ("security_check", security_check, vol.Schema({vol.Optional("speak", default=False): cv.boolean}), SupportsResponse.OPTIONAL),
+        ("look", look, vol.Schema({
+            vol.Required("camera"): cv.entity_id,
+            vol.Optional("question"): cv.string,
+            vol.Optional("speak", default=False): cv.boolean,
+        }), SupportsResponse.ONLY),
+        ("set_spot", set_spot, vol.Schema({
+            vol.Required("camera"): cv.entity_id,
+            vol.Required("spot"): vol.Any(cv.string, None),
+        }), S),
+        ("parcels_collected", parcels_collected, vol.Schema({}), S),
+        ("weekly_report", weekly_report, vol.Schema({vol.Optional("speak", default=False): cv.boolean}), SupportsResponse.OPTIONAL),
+        ("backup", backup, vol.Schema({}), SupportsResponse.OPTIONAL),
+        ("restore", restore, vol.Schema({
+            vol.Optional("file"): cv.string,
+            vol.Optional("with_options", default=False): cv.boolean,
+        }), SupportsResponse.OPTIONAL),
     ]
     for name, handler, schema, support in table:
         hass.services.async_register(DOMAIN, name, handler, schema=schema, supports_response=support)

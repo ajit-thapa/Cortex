@@ -37,6 +37,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_memory_delete)
     websocket_api.async_register_command(hass, ws_hush)
     websocket_api.async_register_command(hass, ws_cancel)
+    websocket_api.async_register_command(hass, ws_action)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "cortex/overview"})
@@ -65,6 +66,21 @@ async def ws_overview(hass: HomeAssistant, connection, msg) -> None:
             "health": brain.health,
             "speech": list(brain.speaker.log),
             "hushed": bool(hushed and hushed > now),
+            "routines": list(brain.routines.items.values()),
+            "motion_lights": list(brain.motion_lights.rules.values()),
+            "heating": list(brain.heating.rules.values()),
+            "suggestions": [x for x in brain.learning.suggestions if x["status"] == "new"],
+            "visitors": {
+                "log": brain.visitors.log[-15:][::-1],
+                "parcels": brain.visitors.parcels_waiting,
+                "today": brain.visitors.today_count(),
+                "spots": brain.visitors.spots,
+                "cameras": sorted(s.entity_id for s in hass.states.async_all("camera")),
+            },
+            "timeline": list(brain.timeline.items)[:30],
+            "week": brain.timeline.week(),
+            "security": brain.security.check(),
+            "backups": await brain.backup.list(),
             "automation": {
                 "topup": brain.opts["auto_topup"],
                 "export": brain.opts["auto_export"],
@@ -124,3 +140,52 @@ async def ws_cancel(hass: HomeAssistant, connection, msg) -> None:
     if brain:
         ok = brain.cancel_reminder(msg["id"]) if msg["kind"] == "reminder" else brain.remove_watch(msg["id"])
     connection.send_result(msg["id"], {"ok": ok})
+
+
+ACTIONS = (
+    "accept_suggestion", "dismiss_suggestion", "run_routine", "delete_routine",
+    "set_spot", "parcels_collected", "security_check", "backup", "weekly_report",
+)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "cortex/action",
+        vol.Required("action"): vol.In(ACTIONS),
+        vol.Optional("id"): str,
+        vol.Optional("camera"): str,
+        vol.Optional("spot"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_action(hass: HomeAssistant, connection, msg) -> None:
+    brain = _brain(hass)
+    if brain is None:
+        connection.send_error(msg["id"], "not_loaded", "Cortex is not set up")
+        return
+    action, ident = msg["action"], msg.get("id", "")
+    try:
+        if action == "accept_suggestion":
+            result: Any = brain.learning.accept(ident)
+        elif action == "dismiss_suggestion":
+            result = brain.learning.dismiss(ident)
+        elif action == "run_routine":
+            result = await brain.routines.run(ident)
+        elif action == "delete_routine":
+            result = brain.routines.delete(ident)
+        elif action == "set_spot":
+            brain.visitors.set_spot(msg.get("camera", ""), msg.get("spot", ""))
+            result = True
+        elif action == "parcels_collected":
+            brain.visitors.collected()
+            result = True
+        elif action == "security_check":
+            result = brain.security.check()
+        elif action == "backup":
+            result = await brain.backup.create()
+        else:
+            result = await brain.briefing.weekly_report()
+    except Exception as err:  # noqa: BLE001 - report to the panel instead of a stack trace
+        connection.send_error(msg["id"], "failed", str(err))
+        return
+    connection.send_result(msg["id"], {"result": result})

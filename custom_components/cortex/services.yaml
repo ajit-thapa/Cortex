@@ -40,6 +40,8 @@ watch:
     to_state: {selector: {text: {}}}
     cooldown: {default: 600, selector: {number: {min: 0, max: 86400, unit_of_measurement: s}}}
     urgent: {default: false, selector: {boolean: {}}}
+    ai: {default: false, selector: {boolean: {}}}
+    camera: {selector: {entity: {domain: camera}}}
 unwatch:
   fields:
     id: {required: true, selector: {text: {}}}
@@ -58,3 +60,79 @@ energy_action:
     force:
       default: false
       selector: {boolean: {}}
+save_routine:
+  fields:
+    name: {required: true, selector: {text: {}}}
+    steps:
+      required: true
+      example: '[{"say": "Good night"}, {"service": "light.turn_off", "target": {"entity_id": "light.lounge"}}]'
+      selector: {object: {}}
+    schedule:
+      example: '{"at": "22:30", "days": "daily"}'
+      selector: {object: {}}
+    on_state:
+      example: '{"entity_id": "binary_sensor.front_door", "to": "on", "cooldown": 60}'
+      selector: {object: {}}
+    enabled: {default: true, selector: {boolean: {}}}
+delete_routine:
+  fields:
+    name: {required: true, selector: {text: {}}}
+run_routine:
+  fields:
+    name: {required: true, selector: {text: {}}}
+accept_suggestion:
+  fields:
+    id: {required: true, selector: {text: {}}}
+dismiss_suggestion:
+  fields:
+    id: {required: true, selector: {text: {}}}
+add_motion_light:
+  fields:
+    name: {required: true, selector: {text: {}}}
+    motion: {required: true, selector: {entity: {domain: binary_sensor, multiple: true}}}
+    lights: {required: true, selector: {entity: {domain: light, multiple: true}}}
+    delay: {default: 180, selector: {number: {min: 10, max: 7200, unit_of_measurement: s}}}
+    brightness: {default: 100, selector: {number: {min: 1, max: 100, unit_of_measurement: "%"}}}
+    only_dark: {default: true, selector: {boolean: {}}}
+    lux_sensor: {selector: {entity: {domain: sensor, device_class: illuminance}}}
+    lux_below: {default: 30, selector: {number: {min: 0, max: 100000, mode: box}}}
+remove_motion_light:
+  fields:
+    name: {required: true, selector: {text: {}}}
+add_heating:
+  fields:
+    name: {required: true, selector: {text: {}}}
+    climate: {required: true, selector: {entity: {domain: climate}}}
+    target: {required: true, selector: {number: {min: 5, max: 35, step: 0.5, unit_of_measurement: "°C"}}}
+    ready_by: {required: true, example: "06:30", selector: {text: {}}}
+    days: {default: daily, selector: {select: {options: [daily, weekdays, weekends]}}}
+    hvac_mode: {default: heat, selector: {text: {}}}
+    persons: {selector: {entity: {domain: person, multiple: true}}}
+    rate: {default: 0.05, selector: {number: {min: 0.005, max: 1, step: 0.005, mode: box}}}
+remove_heating:
+  fields:
+    name: {required: true, selector: {text: {}}}
+security_check:
+  fields:
+    speak: {default: false, selector: {boolean: {}}}
+look:
+  fields:
+    camera: {required: true, selector: {entity: {domain: camera}}}
+    question: {selector: {text: {}}}
+    speak: {default: false, selector: {boolean: {}}}
+set_spot:
+  fields:
+    camera: {required: true, selector: {entity: {domain: camera}}}
+    spot:
+      required: true
+      example: "front porch"
+      selector: {text: {}}
+parcels_collected:
+weekly_report:
+  fields:
+    speak: {default: false, selector: {boolean: {}}}
+backup:
+restore:
+  fields:
+    file: {selector: {text: {}}}
+    with_options: {default: false, selector: {boolean: {}}}
