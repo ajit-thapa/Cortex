@@ -221,7 +221,9 @@ class CortexStudio extends HTMLElement {
         <div class="ticks"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
       </div>
       <div class="card flow"><h2>Power flow</h2><div id="flow"></div></div>
-      <div class="card"><h2>Storage</h2><div id="gauges" class="battstack"><div data-bhost="house"></div><div data-bhost="ev"></div></div>
+      <div class="card wide"><h2>Energy Storage</h2>
+        <div class="estore"><div class="escene">${sceneHTML()}</div>
+          <div class="epanels"><div class="esub"><div data-bhost="house"></div></div><div class="esub"><div data-bhost="ev"></div></div></div></div>
         <div class="muted" style="margin-top:8px">${esc(e.storage_summary || "")}</div></div>
       <div class="card wide"><h2>Last 24 hours <span class="legend"><b style="color:${C.solar}">■</b> solar <b style="color:${C.home}">■</b> load <b style="color:${C.grid}">■</b> grid <b style="color:${C.batt}">■</b> battery %</span></h2>
         <div id="chart" class="chart"><div class="muted">Loading history…</div></div></div>
@@ -494,7 +496,7 @@ class CortexStudio extends HTMLElement {
 
   _battWidgets() {
     const r = this._root, f = this._flows(), s = this._data.studio || {};
-    r.querySelectorAll("[data-bhost]").forEach(h => { if (!h.querySelector(".batt")) h.innerHTML = battHTML(h.dataset.bhost, h.dataset.bhost === "house" ? "Home battery" : "BYD Sealion 7"); });
+    r.querySelectorAll("[data-bhost]").forEach(h => { if (!h.querySelector(".batt")) h.innerHTML = battHTML(h.dataset.bhost, h.dataset.bhost === "house" ? "Home ESS" : "BYD Sealion 7"); });
     const house = r.querySelector('[data-b="house"]'), ev = r.querySelector('[data-b="ev"]');
     if (house) {
       const soc = this._num(s.soc) ?? this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc"), cap = this._num("input_number.system_battery_capacity") ?? 50;
@@ -510,6 +512,12 @@ class CortexStudio extends HTMLElement {
       battSet(ev, { pct: soc, charging: chg || kw > 0.05, plugged: !!this._data.energy.ev_plugged || (this._hass.states[EV.plug] || {}).state === "on",
         sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (chg || kw > 0.05 ? "⚡ charging " + fx(kw) + " kW" : (this._data.energy.ev_plugged ? "plugged in" : "unplugged")),
         marks: [{ pct: this._tab === "ev" && this._evTarget !== undefined ? this._evTarget : this._num("input_number.byd_target_soc"), color: C.home, label: "Target" }] });
+    }
+    const scene = r.querySelector(".escene");
+    if (scene) {
+      const bsoc = this._num(s.soc) ?? this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc"), esoc = this._num(EV.soc) ?? this._num(s.ev_soc);
+      const chg = this._hass.states[EV.charging] && this._hass.states[EV.charging].state === "on";
+      sceneSet(scene, { f, bsoc, esoc, charging: chg || f.ev > 0.05, plugged: !!this._data.energy.ev_plugged || (this._hass.states[EV.plug] || {}).state === "on" });
     }
   }
 
@@ -943,6 +951,38 @@ function towerSvg(k) {
     <g class="tflow tup">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 200 l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
     <g class="bmarks"></g></svg>`;
 }
+// ---- house scene: live badges and flow lines over the illustration ------------------
+const SC = { img: "/cortex_static/home-scene.jpg",
+  paths: { pv: "M815 268V448", bat: "M806 468H774", ev: "M815 484V540H690L540 513V440", home: "M832 452H864", grid: "M815 540L905 570" } };
+function sceneHTML() {
+  const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sf sf-${k}" d="${d}"/>`).join("");
+  return `<img src="${SC.img}" alt="Home energy"><svg class="xov" viewBox="170 100 930 540" preserveAspectRatio="xMidYMid meet">
+    <defs><clipPath id="sbc"><rect x="722" y="426" width="48" height="92" rx="8"/></clipPath><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter></defs>
+    <polygon class="spv" points="572,160 818,262 700,355 462,270"/>
+    <ellipse class="scar" cx="478" cy="498" rx="64" ry="50" filter="url(#sbl)"/>
+    <rect class="sbglow" x="716" y="420" width="60" height="104" rx="12" filter="url(#sbl)"/>
+    <g clip-path="url(#sbc)"><rect class="sbf" x="722" y="518" width="48" height="0"/></g>
+    ${paths}<g class="sbadges"></g></svg>`;
+}
+function sceneSet(root, o) {
+  const f = o.f, set = (sel, fn) => root.querySelectorAll(sel).forEach(fn), bp = o.bsoc === null || o.bsoc === undefined ? null : Math.max(0, Math.min(o.bsoc, 100));
+  const bcol = levelColor(bp), ecol = levelColor(o.esoc ?? null), hh = 92 * (bp ?? 0) / 100;
+  set(".sbf", e => { e.setAttribute("y", 518 - hh); e.setAttribute("height", hh); e.style.fill = bcol; });
+  set(".sbglow", e => { e.style.fill = bcol; });
+  set(".scar", e => { e.style.fill = o.charging ? C.shoulder : C.off_peak; });
+  set(".spv", e => { e.style.opacity = Math.min(f.pv / 6, 1) * 0.55; });
+  root.classList.toggle("bchg", f.batt > 0.05); root.classList.toggle("bdis", f.batt < -0.05);
+  root.classList.toggle("cplug", !!(o.plugged || o.charging)); root.classList.toggle("cchg", !!o.charging);
+  const on = (k, v, rev, col) => set(".sf-" + k, e => { e.style.opacity = Math.abs(v) > 0.05 ? 1 : 0; e.style.stroke = col; e.classList.toggle("rev", !!rev); });
+  on("pv", f.pv, false, C.solar); on("bat", f.batt, f.batt < 0, C.batt); on("ev", f.ev, false, C.ev); on("home", f.home, false, C.home); on("grid", f.grid, f.grid > 0, C.grid);
+  const badge = (x, y, t, col) => { const w = t.length * 11.5 + 22; return `<g transform="translate(${x - w / 2} ${y - 17})"><rect width="${w}" height="34" rx="17" fill="#fff" stroke="${col}" stroke-width="3"/><text x="${w / 2}" y="24" text-anchor="middle" fill="#222" font-size="20" font-weight="700">${esc(t)}</text></g>`; };
+  const pc = v => (v === null || v === undefined ? "–" : Math.round(v) + "%");
+  set(".sbadges", e => { e.innerHTML = badge(690, 128, "☀ " + fx(f.pv) + " kW", C.solar)
+    + badge(745, 392, pc(bp) + (f.batt > 0.05 ? " ▼" : f.batt < -0.05 ? " ▲" : ""), bcol)
+    + badge(470, 412, pc(o.esoc) + (o.charging ? " ⚡" : ""), ecol)
+    + badge(940, 330, "Home " + fx(f.home) + " kW", C.home)
+    + badge(955, 604, Math.abs(f.grid) < 0.05 ? "Grid idle" : (f.grid > 0 ? "Import " : "Export ") + fx(Math.abs(f.grid)) + " kW", C.grid); });
+}
 // ---- BYD cutaway: battery pack fills to SOC, cable flows while charging -------
 const XR = { img: "/cortex_static/byd-cutaway.jpg", x: 618, y: 372, w: 457, h: 100 };
 function xrayHTML(k) {
@@ -1171,6 +1211,13 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
   background:linear-gradient(105deg,var(--bc) 0 40%,color-mix(in srgb,var(--bc) 55%,#fff) 50%,var(--bc) 60% 100%);background-size:250% 100%;transition:clip-path 1s ease}
 .carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
 .chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
+.escene{position:relative;border-radius:16px;overflow:hidden;background:#f4f5fa;box-shadow:0 10px 30px #0004}.escene img{display:block;width:100%;height:auto}
+.estore{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:center}.epanels{display:grid;gap:14px}
+.esub{background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);border-radius:14px;padding:14px}
+@media (max-width:900px){.estore{grid-template-columns:1fr}}
+.spv{fill:#ffb300;mix-blend-mode:multiply;opacity:0;transition:opacity 1s}.sbf{mix-blend-mode:multiply;opacity:.85;transition:y 1s,height 1s}.sbglow,.scar{opacity:0}
+.sf{fill:none;stroke-width:7;stroke-linecap:round;stroke-dasharray:2 20;opacity:0;animation:xdash 1s linear infinite;transition:opacity .5s}.sf.rev{animation-direction:reverse}
+.bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.cplug .scar{opacity:.45}.cchg .scar{animation:xgl 1.6s ease-in-out infinite}
 .xray{position:relative;width:min(calc(100% - 36px),780px);margin:0 auto;border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fff,#e8ecef);z-index:1;box-shadow:0 10px 30px #0005;transition:box-shadow .6s}
 .xray img{display:block;width:100%;height:auto}.xray.nox img{padding:10px;box-sizing:border-box;object-fit:contain}.xray.nox .xov{display:none}
 .xov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
