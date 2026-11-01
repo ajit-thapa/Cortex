@@ -379,7 +379,7 @@ class CortexStudio extends HTMLElement {
             <div class="cartop"><span class="carname">BYD Sealion 7</span><span id="ev-state" class="pill"></span></div>
             <div class="carbar"><div class="barbg"><i id="ev-fill"></i><u id="ev-mark"></u></div>
               <div class="barlbl"><b id="ev-big"></b><span id="ev-sub" class="muted"></span></div></div></div>
-          <div class="evside"><div data-bhost="ev"></div><div class="stats" id="ev-stats"></div></div></div></div>
+          <div class="evside"><div class="stats" id="ev-stats"></div></div></div></div>
       <div class="card"><h2>Charge planner <span class="muted">drag to set target</span></h2>
         <div class="big" id="ev-target-big"></div>
         <input type="range" id="ev-target" min="20" max="100" step="1" value="${this._evTarget ?? 80}" class="slider">
@@ -449,8 +449,9 @@ class CortexStudio extends HTMLElement {
       fill.style.width = Math.max(0, Math.min(pl.soc, 100)) + "%"; fill.style.background = charging ? C.shoulder : C.ev;
       q("#ev-mark").style.left = pl.target + "%";
       q("#ev-big").textContent = Math.round(pl.soc) + "%";
-      q("#ev-sub").textContent = `${fx(pl.soc * pl.cap / 100, 1)} kWh · target ${pl.target}%` + (charging ? ` · ${fx(kwNow)} kW` : "");
+      q("#ev-sub").textContent = `${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh · target ${pl.target}%` + (charging ? ` · ⚡ charging ${fx(kwNow)} kW` : plugged ? " · plugged in" : "");
       q("#ev-glow").className = "carglow" + (charging ? " on" : "");
+      fill.classList.toggle("chg", charging); q(".carbox").classList.toggle("chg", charging);
     }
     q("#ev-stats").innerHTML = [
       ["Power", charging ? fx(kwNow) + " kW" : "–", C.ev], ["Time left", (st(EV.remain) || {}).state && st(EV.remain).state !== "unknown" ? st(EV.remain).state : "–", C.shoulder],
@@ -1179,9 +1180,9 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 
 .evhero{padding:0;overflow:hidden}
 .stage{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(240px,1fr)}
-.carbox{position:relative;min-height:280px;display:flex;align-items:center;justify-content:center;
+.carbox{position:relative;min-height:360px;padding:54px 0 84px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(120% 90% at 50% 38%,color-mix(in srgb,var(--primary-color) 22%,transparent),transparent 70%),linear-gradient(180deg,transparent,#0003)}
-.carbox img{max-width:88%;max-height:210px;object-fit:contain;filter:drop-shadow(0 18px 18px #0006);position:relative;z-index:1;margin-bottom:34px}
+.carbox img{max-width:88%;max-height:230px;object-fit:contain;filter:drop-shadow(0 18px 18px #0006);position:relative;z-index:1}
 .carglow{position:absolute;left:12%;right:12%;bottom:62px;height:26px;border-radius:50%;background:radial-gradient(closest-side,#66bb6a88,transparent);opacity:0;transition:opacity .6s}
 .carglow.on{opacity:1;animation:glow 2s ease-in-out infinite}
 .cartop{position:absolute;top:14px;left:18px;right:18px;display:flex;justify-content:space-between;align-items:center;z-index:2}
@@ -1189,6 +1190,8 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .carbar{position:absolute;left:18px;right:18px;bottom:14px;z-index:2}
 .barbg{position:relative;height:12px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);overflow:visible}
 .barbg i{position:absolute;left:0;top:0;bottom:0;border-radius:7px;transition:width .8s,background .4s;box-shadow:0 0 12px currentColor}
+.barbg i.chg{background-image:linear-gradient(105deg,transparent 0 40%,#fff7 50%,transparent 60%);background-size:250% 100%;animation:photo 2.2s linear infinite}
+.carbox.chg img{animation:carpulse2 2.4s ease-in-out infinite}@keyframes carpulse2{50%{filter:drop-shadow(0 12px 24px #66bb6acc)}}
 .barbg u{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1px;border-radius:2px;background:#ef6c00;text-decoration:none}
 .barlbl{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px}.barlbl b{font-size:22px}
 .evside{padding:18px;display:flex;flex-direction:column;justify-content:center;gap:10px;background:color-mix(in srgb,var(--primary-text-color) 4%,transparent)}
