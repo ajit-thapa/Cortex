@@ -38,6 +38,26 @@ const EV = {
   wcA: ["sensor.tesla_wall_connector_phase_a_current", "sensor.tesla_wall_connector_phase_b_current", "sensor.tesla_wall_connector_phase_c_current"],
   wcT: [["Handle", "sensor.tesla_wall_connector_handle_temperature"], ["MCU", "sensor.tesla_wall_connector_mcu_temperature"], ["PCB", "sensor.tesla_wall_connector_pcb_temperature"]],
 };
+// Daily energy sensors reset at midnight and keep only sum/state statistics, so day
+// totals are rebuilt from hourly "state" deltas (also gives tariff-accurate costs).
+const AN = { pv: "sensor.neovolt_online_pv_generated_today", imp: "sensor.neovolt_online_grid_import_today", exp: "sensor.neovolt_online_feed_in_today",
+  chg: "sensor.neovolt_online_battery_charged_today", dis: "sensor.neovolt_online_battery_discharged_today", load: "sensor.neovolt_online_consumed_today",
+  evKwh: "sensor.tesla_wall_connector_energy" };
+const AN_POWER = { pv: N + "combined_pv_power", load: N + "combined_house_load", grid: N + "grid_total_active_power", soc: N + "combined_battery_soc" };
+let _tzf = null, _tzName = null;
+function tzParts(ms, tz) {
+  if (!_tzf || _tzName !== tz) { _tzName = tz; _tzf = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23", weekday: "short" }); }
+  const o = {}; _tzf.formatToParts(new Date(ms)).forEach(x => { o[x.type] = x.value; });
+  return { key: `${o.year}-${o.month}-${o.day}`, hour: Number(o.hour) % 24, month: Number(o.month), biz: o.weekday !== "Sat" && o.weekday !== "Sun" };
+}
+function tariffAt(h, r) {
+  let per = "off_peak", imp = r.off;
+  if (h.hour >= 10 && h.hour < 14) { per = "shoulder"; imp = r.shoulder; }
+  else if (h.hour >= 16 && h.hour < 20 && h.biz) { per = "peak"; imp = [11, 12, 1, 2, 3].includes(h.month) ? r.hi : r.lo; }
+  const fit = h.hour >= 17 && h.hour < 21 ? r.fitE : h.hour >= 7 && h.hour < 8 ? r.fitM : r.fitO;
+  return { per, imp, fit };
+}
+const dayLabel = (key, long) => long ? key.slice(8) + "/" + key.slice(5, 7) : new Date(key + "T12:00").toLocaleDateString([], { weekday: "short" });
 const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["history", "History"], ["house", "House"]];
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -154,18 +174,8 @@ class CortexStudio extends HTMLElement {
   }
 
   async _loadDaily() {
-    const s = this._data.studio || {};
-    const ids = [s.day_pv, s.day_load, s.day_export, s.day_import].filter(Boolean);
-    if (!ids.length) { this._daily = {}; return; }
-    const start = new Date(Date.now() - this._range * 86400000);
-    try {
-      const res = await this._hass.callWS({
-        type: "recorder/statistics_during_period", start_time: start.toISOString(),
-        statistic_ids: ids, period: "day", types: ["max"],
-      });
-      this._daily = res;
-      if (this._tab === "history") this._paintHistory();
-    } catch (e) { this._daily = {}; }
+    try { await this._energy(); this._daily = true; } catch (e) { this._daily = {}; }
+    if (this._tab === "history") this._paintHistory();
   }
 
   // ---- frame ----------------------------------------------------------
@@ -527,12 +537,85 @@ class CortexStudio extends HTMLElement {
     });
     return out;
   }
-  async _dayStats(ids, days) {
-    const start = new Date(Date.now() - days * 86400000);
-    const res = await this._hass.callWS({ type: "recorder/statistics_during_period", start_time: start.toISOString(), statistic_ids: ids, period: "day", types: ["max"] }).catch(() => ({}));
-    const keys = [...new Set(ids.flatMap(id => (res[id] || []).map(r => new Date(r.start).toLocaleDateString("en-CA"))))].sort();
-    const by = id => { const m = {}; (res[id] || []).forEach(r => { m[new Date(r.start).toLocaleDateString("en-CA")] = r.max; }); return keys.map(k => m[k] ?? 0); };
-    return { days: keys.map(k => new Date(k + "T12:00").toLocaleDateString([], { weekday: "short" })), by };
+  _rates() {
+    const n = (id, d) => this._num(id) ?? d;
+    return { shoulder: n("input_number.agl_plan_shoulder", 11.11), off: n("input_number.agl_plan_off_peak", 32.12), hi: n("input_number.agl_plan_high_season_peak", 41.91),
+      lo: n("input_number.agl_plan_low_season_peak", 42.416), fitE: n("input_number.agl_plan_fit_evening", 28), fitM: n("input_number.agl_plan_fit_morning", 3),
+      fitO: n("input_number.agl_plan_fit_off_peak", 3), supply: n("input_number.agl_plan_supply_charge", 166.617) };
+  }
+  /** Loads 30 days of hourly energy deltas + daily power/SOC stats + EV energy (cached 5 min). */
+  async _energy() {
+    if (this._en && Date.now() - this._en.at < 300000) return this._en;
+    if (this._enP) return this._enP;
+    this._enP = (async () => {
+      const tz = (this._hass.config && this._hass.config.time_zone) || undefined, s = (this._data && this._data.studio) || {};
+      const ids = { pv: s.day_pv || AN.pv, imp: s.day_import || AN.imp, exp: s.day_export || AN.exp, chg: AN.chg, dis: AN.dis, load: s.day_load || AN.load };
+      const start = new Date(Date.now() - 32 * 86400000).toISOString();
+      const ws = extra => this._hass.callWS({ type: "recorder/statistics_during_period", start_time: start, ...extra }).catch(() => ({}));
+      const [hr, dayP, evD] = await Promise.all([
+        ws({ statistic_ids: [...new Set(Object.values(ids))], period: "hour", types: ["state"] }),
+        ws({ statistic_ids: Object.values(AN_POWER), period: "day", types: ["mean", "min", "max"] }),
+        ws({ statistic_ids: [AN.evKwh], period: "day", types: ["change"] })]);
+      const hours = new Map();
+      Object.keys(ids).forEach(k => {
+        const rows = (hr[ids[k]] || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start)), last = {};
+        rows.forEach(r => {
+          const t = +new Date(r.start), v = r.state;
+          if (v === null || v === undefined) return;
+          const p = tzParts(t, tz), prev = last[p.key];
+          let d = prev === undefined ? v : v - prev;
+          if (d < 0) d = v;           // counter reset
+          if (d > 40) d = 0;          // implausible hour: glitch
+          last[p.key] = v;
+          let h = hours.get(t);
+          if (!h) { h = { t, ...p, pv: 0, imp: 0, exp: 0, chg: 0, dis: 0, load: 0 }; hours.set(t, h); }
+          h[k] = d;
+        });
+      });
+      const byDay = (res, id, f) => { const m = {}; (res[id] || []).forEach(r => { m[tzParts(+new Date(r.start), tz).key] = f(r); }); return m; };
+      const power = {};
+      Object.entries(AN_POWER).forEach(([k, id]) => { power[k] = byDay(dayP, id, r => r); });
+      this._en = { at: Date.now(), tz, ids, hours: [...hours.values()].sort((a, b) => a.t - b.t), power, ev: byDay(evD, AN.evKwh, r => r.change) };
+      this._enP = null;
+      return this._en;
+    })();
+    try { return await this._enP; } finally { this._enP = null; }
+  }
+  /** Daily + hourly rows with costs. Today is topped up from the live counters. */
+  _enCompute() {
+    const en = this._en; if (!en) return null;
+    const r = this._rates(), hrs = en.hours.map(h => ({ ...h })), now = Date.now(), cur = Math.floor(now / 3600000) * 3600000, pc = tzParts(now, en.tz);
+    ["pv", "imp", "exp", "chg", "dis", "load"].forEach(k => {
+      const live = this._num(en.ids[k]); if (live === null) return;
+      const have = hrs.filter(h => h.key === pc.key).reduce((a, h) => a + h[k], 0);
+      if (live > have + 0.005) {
+        let h = hrs.find(x => x.t === cur);
+        if (!h) { h = { t: cur, ...pc, pv: 0, imp: 0, exp: 0, chg: 0, dis: 0, load: 0 }; hrs.push(h); }
+        h[k] += live - have;
+      }
+    });
+    const days = new Map();
+    hrs.forEach(h => {
+      const t = tariffAt(h, r); h.per = t.per; h.rate = t.imp; h.fit = t.fit;
+      h.used = h.load > 0 ? h.load : Math.max(h.pv + h.imp + h.dis - h.exp - h.chg, 0);
+      h.cImp = h.imp * h.rate / 100; h.cExp = h.exp * h.fit / 100; h.cBase = h.used * h.rate / 100;
+      let d = days.get(h.key);
+      if (!d) { d = { key: h.key, pv: 0, imp: 0, exp: 0, chg: 0, dis: 0, used: 0, cImp: 0, cExp: 0, cBase: 0, per: { shoulder: { kwh: 0, cost: 0 }, peak: { kwh: 0, cost: 0 }, off_peak: { kwh: 0, cost: 0 } }, expEve: 0, cExpEve: 0 }; days.set(h.key, d); }
+      ["pv", "imp", "exp", "chg", "dis", "used", "cImp", "cExp", "cBase"].forEach(k => { d[k] += h[k]; });
+      d.per[h.per].kwh += h.imp; d.per[h.per].cost += h.cImp;
+      if (h.hour >= 17 && h.hour < 21) { d.expEve += h.exp; d.cExpEve += h.cExp; }
+    });
+    const list = [...days.values()].sort((a, b) => a.key.localeCompare(b.key)).slice(-30);
+    list.forEach(d => {
+      d.supply = r.supply / 100; d.net = d.cImp - d.cExp + d.supply; d.saved = d.cBase - (d.cImp - d.cExp);
+      d.ss = d.used > 0.5 ? Math.max(0, Math.min(100, (1 - d.imp / d.used) * 100)) : null;
+      d.sc = d.pv > 0.5 ? Math.max(0, Math.min(100, (1 - d.exp / d.pv) * 100)) : null;
+      d.ev = en.ev[d.key] ?? null;
+      const g = k => (en.power[k] || {})[d.key] || null;
+      d.pvMax = g("pv") ? g("pv").max : null; d.loadMax = g("load") ? g("load").max : null; d.gridMax = g("grid") ? g("grid").max : null; d.gridMin = g("grid") ? g("grid").min : null;
+      d.soc = g("soc") ? { min: g("soc").min, mean: g("soc").mean, max: g("soc").max } : null;
+    });
+    return { days: list, hrs, rates: r };
   }
   _st(id) { return this._hass.states[id]; }
   _tile(label, id, color) {
@@ -547,11 +630,9 @@ class CortexStudio extends HTMLElement {
       this._bt = { fl, soc, tmp };
     } else if (tab === "analytics") {
       const pvId = "sensor.sungrow_pv", fc = "sensor.pv_forecast_power_now", sun = "sensor.sun_solar_elevation";
-      const [sol, dayS, cyc, eff, rate] = await Promise.all([
-        this._hist([pvId, fc, sun], 14, 168, { [fc]: 0.001 }), this._dayStats(E.day.concat(E.cyc).map(x => x[1]), 8),
-        Promise.resolve(null), this._hist(["sensor.neovolt_online_self_sufficiency", "sensor.neovolt_online_self_consumption"], 168, 84),
+      const [, sol, rate] = await Promise.all([this._energy().catch(() => null), this._hist([pvId, fc, sun], 36, 216, { [fc]: 0.001 }),
         this._hist(["sensor.agl_plan_import_rate", "sensor.agl_plan_feed_in_rate"], 48, 96)]);
-      this._an = { sol, dayS, eff, rate };
+      this._an = { sol, rate };
     }
     this._moreAt = { ...(this._moreAt || {}), [tab]: Date.now() };
     if (this._tab === tab) this._paintMore(tab);
@@ -576,18 +657,65 @@ class CortexStudio extends HTMLElement {
 
   // ---- ANALYTICS -------------------------------------------------------
   _viewAnalytics() {
-    const todays = [["Solar generated", "sensor.neovolt_online_pv_generated_today", C.solar], ["Exported", "sensor.neovolt_online_feed_in_today", C.shoulder], ["Imported", "sensor.neovolt_online_grid_import_today", C.peak],
-      ["Battery charged", "sensor.neovolt_online_battery_charged_today", C.batt], ["Battery discharged", "sensor.neovolt_online_battery_discharged_today", "#7e57c2"], ["Battery level", "sensor.neovolt_online_soc", C.batt]];
+    const todays = [["Solar generated", AN.pv, C.solar], ["Exported", AN.exp, C.shoulder], ["Imported", AN.imp, C.peak], ["Used", AN.load, C.home],
+      ["Battery charged", AN.chg, C.batt], ["Battery discharged", AN.dis, "#7e57c2"], ["Battery level", "sensor.neovolt_online_soc", C.batt]];
     return `<section class="grid">
       <div class="card wide"><h2>Today</h2><div class="stats">${todays.map(([l, id, c]) => this._tile(l, id, c)).join("")}</div>
         <div class="row" style="margin-top:8px"><span>${esc((this._st("sensor.daily_summary") || {}).state || "")}</span><span class="muted">Best appliance time: <b>${esc((this._st("sensor.best_time_to_run_appliances") || {}).state || "–")}</b></span></div></div>
-      <div class="card wide"><h2>Solar production vs forecast (kW)</h2><div id="an-sol"></div></div>
-      <div class="card"><h2>Daily energy (kWh)</h2><div id="an-day"></div></div>
-      <div class="card"><h2>Battery cycling (kWh/day)</h2><div id="an-cyc"></div></div>
-      <div class="card"><h2>Self-sufficiency & self-consumption (%)</h2><div id="an-eff"></div></div>
-      <div class="card"><h2>AGL rates 48h</h2><div id="an-rate"></div></div>
-      <div class="card wide"><h2>Cost tracking</h2><div class="stats">${E.cost.map(([l, id]) => this._tile(l, id, C.off_peak)).join("")}</div></div>
+      <div id="an-body" style="display:contents"><div class="card wide muted">Loading analytics…</div></div>
     </section>`;
+  }
+  _anBody() {
+    const c = this._enCompute();
+    if (!c || !c.days.length) return `<div class="card wide"><h2>History</h2><div class="muted">No statistics yet. Energy history appears once Home Assistant has compiled a few hours of data.</div></div>`;
+    const R = this._anRange || 14, days = c.days.slice(-R), keys = new Set(days.map(d => d.key)), long = days.length > 10, lbl = days.map(d => dayLabel(d.key, long));
+    const sum = k => days.reduce((a, d) => a + (d[k] || 0), 0), n = days.length;
+    const pv = sum("pv"), used = sum("used"), imp = sum("imp"), exp = sum("exp"), chg = sum("chg"), dis = sum("dis"), cImp = sum("cImp"), cExp = sum("cExp"), saved = sum("saved");
+    const ss = used > 0 ? Math.max(0, Math.min(100, (1 - imp / used) * 100)) : null, sc = pv > 0 ? Math.max(0, Math.min(100, (1 - exp / pv) * 100)) : null;
+    const supply = days.reduce((a, d) => a + d.supply, 0), net = cImp - cExp + supply, ev = sum("ev");
+    const cap = this._num("input_number.system_battery_capacity") ?? 50, f = (v, d = 0) => fx(v, d), $ = v => (v < 0 ? "-$" : "$") + fx(Math.abs(v), 2);
+    const T = (l, v, col, sub) => `<div class="stat" style="border-color:${col}"><span class="muted">${l}</span><b>${v}</b>${sub ? `<span class="muted">${sub}</span>` : ""}</div>`;
+    const best = (k, max = true) => days.filter(d => d[k] !== null && d[k] !== undefined).reduce((a, d) => (!a || (max ? d[k] > a[k] : d[k] < a[k]) ? d : a), null);
+    const bd = (d, k, u) => d ? `${dayLabel(d.key, true)} · ${fx(d[k], 1)}${u}` : "–";
+    const seg = `<span class="seg">${[7, 14, 30].map(x => `<button data-anr="${x}" class="${x === R ? "on" : ""}">${x}d</button>`).join("")}</span>`;
+    const chart = (series, o) => lineChart(series, { labels: lbl, ...o });
+    // hourly profile
+    const prof = h => { const a = new Array(24).fill(0); c.hrs.filter(x => keys.has(x.key)).forEach(x => { a[x.hour] += x[h]; }); return a.map(v => v / n); };
+    const per = ["shoulder", "peak", "off_peak"].map(p => ({ id: p, name: { shoulder: "Shoulder 10–14", peak: "Peak 16–20", off_peak: "Off-peak" }[p], color: { shoulder: C.shoulder, peak: C.peak, off_peak: C.off_peak }[p],
+      kwh: days.reduce((a, d) => a + d.per[p].kwh, 0), cost: days.reduce((a, d) => a + d.per[p].cost, 0) }));
+    const pk = Math.max(...per.map(p => p.kwh), 0.1), expEve = sum("expEve"), cExpEve = sum("cExpEve");
+    const rowBar = (name, color, kwh, cost, mx) => `<div class="row"><span style="min-width:120px">${name}</span><span style="flex:1;margin:0 10px;background:rgba(127,127,127,.15);border-radius:6px;height:10px;align-self:center"><i style="display:block;height:10px;border-radius:6px;width:${Math.min(kwh / mx * 100, 100)}%;background:${color}"></i></span><b>${f(kwh, 1)} kWh · ${$(cost)}</b></div>`;
+    const evDays = days.map(d => d.ev || 0);
+    return `<div class="card wide"><h2>Last ${n} days ${seg}</h2><div class="stats">
+        ${T("Solar", f(pv) + " kWh", C.solar, f(pv / n, 1) + " kWh/day")}${T("Used", f(used) + " kWh", C.home, f(used / n, 1) + " kWh/day")}
+        ${T("Imported", f(imp) + " kWh", C.grid, $(cImp) + " at tariff")}${T("Exported", f(exp) + " kWh", C.shoulder, $(cExp) + " earned")}
+        ${T("Self-sufficiency", ss === null ? "–" : f(ss) + "%", C.batt, "share of use not from grid")}${T("Self-consumption", sc === null ? "–" : f(sc) + "%", "#12b5cb", "share of solar used on-site")}
+        ${T("Net bill", $(net), net <= 0 ? C.shoulder : C.peak, "import − export + supply " + $(supply))}${T("Saved vs no solar", $(saved), C.shoulder, "excl. supply charge")}
+        ${T("Battery cycles", f(dis / cap, 1), "#7e57c2", f(dis, 0) + " kWh out · " + f(chg, 0) + " in")}${T("Battery out/in", chg > 1 ? f(dis / chg * 100) + "%" : "–", C.batt, "energy returned")}
+        ${T("EV charged", ev > 0 ? f(ev, 1) + " kWh" : "–", C.ev, ev > 0 ? f(ev / Math.max(used, 1) * 100) + "% of use" : "")}
+        ${T("Avg cost / day", $(net / n), C.off_peak, "incl. supply")}</div>
+      <div class="row" style="margin-top:8px"><span class="muted">Best solar: <b>${bd(best("pv"), "pv", " kWh")}</b></span><span class="muted">Most imported: <b>${bd(best("imp"), "imp", " kWh")}</b></span><span class="muted">Most saved: <b>${best("saved") ? dayLabel(best("saved").key, true) + " · " + $(best("saved").saved) : "–"}</b></span></div>
+      <div class="muted">Costs use your Plan rates by hour (public holidays treated as normal days). Today updates live.</div></div>
+      <div class="card wide"><h2>Daily energy (kWh)</h2>${barChart(lbl, [{ name: "Solar", color: C.solar, data: days.map(d => d.pv) }, { name: "Used", color: C.home, data: days.map(d => d.used) },
+        { name: "Imported", color: C.grid, data: days.map(d => d.imp) }, { name: "Exported", color: C.shoulder, data: days.map(d => d.exp) }], { w: 1100, h: 230 })}</div>
+      <div class="card"><h2>Daily money ($)</h2>${barChart(lbl, [{ name: "Import cost", color: C.peak, data: days.map(d => d.cImp) }, { name: "Export earned", color: C.shoulder, data: days.map(d => d.cExp) },
+        { name: "Saved vs no solar", color: C.solar, data: days.map(d => Math.max(d.saved, 0)) }], { unit: "$", dec: 2 })}</div>
+      <div class="card"><h2>Self-sufficiency & self-consumption (%)</h2>${chart([{ name: "Self-sufficiency", color: "#0f9d58", data: days.map(d => d.ss) }, { name: "Self-consumption", color: "#12b5cb", data: days.map(d => d.sc) }], { min: 0, max: 100 })}</div>
+      <div class="card"><h2>Import by rate period</h2>${per.map(p => rowBar(p.name, p.color, p.kwh, p.cost, pk)).join("")}
+        <div class="muted" style="margin-top:6px">Aim: shift peak use to battery; top up in the 10–14 shoulder.</div></div>
+      <div class="card"><h2>Export earnings</h2>${rowBar("Evening FiT 17–21", C.shoulder, expEve, cExpEve, Math.max(exp, 0.1))}${rowBar("Other hours", C.off_peak, exp - expEve, cExp - cExpEve, Math.max(exp, 0.1))}
+        <div class="row"><span>Average per exported kWh</span><b>${exp > 0 ? fx(cExp / exp * 100, 1) + "c" : "–"}</b></div></div>
+      <div class="card wide"><h2>Typical day: average kWh per hour</h2>${lineChart([{ name: "Solar", color: C.solar, data: prof("pv"), area: true }, { name: "Used", color: C.home, data: prof("used") },
+        { name: "Imported", color: C.grid, data: prof("imp") }, { name: "Exported", color: C.shoulder, data: prof("exp") }], { labels: Array.from({ length: 24 }, (_, h) => h + ":00"), min: 0, w: 1100, h: 220 })}</div>
+      <div class="card"><h2>Battery cycling (kWh/day)</h2>${barChart(lbl, [{ name: "Charged", color: C.batt, data: days.map(d => d.chg) }, { name: "Discharged", color: "#7e57c2", data: days.map(d => d.dis) }])}</div>
+      <div class="card"><h2>Battery level range (%)</h2>${chart([{ name: "Max", color: C.shoulder, data: days.map(d => d.soc && d.soc.max) }, { name: "Average", color: C.batt, data: days.map(d => d.soc && d.soc.mean) },
+        { name: "Min", color: C.off_peak, data: days.map(d => d.soc && d.soc.min) }], { min: 0, max: 100 })}</div>
+      <div class="card"><h2>Peak power each day (kW)</h2>${chart([{ name: "House load", color: C.home, data: days.map(d => d.loadMax === null ? null : d.loadMax / 1000) }, { name: "Solar", color: C.solar, data: days.map(d => d.pvMax === null ? null : d.pvMax / 1000) },
+        { name: "Grid", color: C.grid, data: days.map(d => d.gridMax === null ? null : Math.abs(((this._data.studio || {}).grid_invert ? -d.gridMin : d.gridMax)) / 1000) }], { min: 0 })}</div>
+      <div class="card"><h2>EV charging (kWh/day)</h2>${barChart(lbl, [{ name: "Tesla wall connector", color: C.ev, data: evDays }])}</div>
+      <div class="card wide"><h2>Solar production vs forecast, last 36 h (kW)</h2><div id="an-sol"></div></div>
+      <div class="card"><h2>AGL rates 48h (c/kWh)</h2><div id="an-rate"></div></div>
+      <div class="card"><h2>Cost tracking</h2><div class="stats">${E.cost.map(([l, id]) => this._tile(l, id, C.off_peak)).join("")}</div></div>`;
   }
 
   _paintMore(tab) {
@@ -598,13 +726,17 @@ class CortexStudio extends HTMLElement {
       put("#bt-soc", lineChart([{ name: "SOC", color: C.batt, data: soc[N + "combined_battery_soc"], area: true }], { min: 0, max: 100, start: soc.start, end: soc.end }));
       put("#bt-tmp", lineChart([{ name: "Max cell", color: "#e8833a", data: tmp[N + "battery_max_cell_temperature"] }, { name: "Min cell", color: "#4a90d9", data: tmp[N + "battery_min_cell_temperature"] }], { start: tmp.start, end: tmp.end }));
     }
-    if (tab === "analytics" && this._an) {
-      const { sol, dayS, eff, rate } = this._an, ids = ["sensor.sungrow_pv", "sensor.pv_forecast_power_now"];
-      put("#an-sol", lineChart([{ name: "Actual PV", color: "#FFB300", data: sol[ids[0]], area: true }, { name: "Forecast", color: "#00B0FF", data: sol[ids[1]] }], { start: sol.start, end: sol.end, min: 0, h: 220, w: 1100 }));
-      put("#an-day", barChart(dayS.days, E.day.map(([n, id, c]) => ({ name: n, color: c, data: dayS.by(id) }))));
-      put("#an-cyc", barChart(dayS.days, E.cyc.map(([n, id, c]) => ({ name: n, color: c, data: dayS.by(id) }))));
-      put("#an-eff", lineChart([{ name: "Self-sufficiency", color: "#0f9d58", data: eff["sensor.neovolt_online_self_sufficiency"] }, { name: "Self-consumption", color: "#12b5cb", data: eff["sensor.neovolt_online_self_consumption"] }], { min: 0, max: 100, start: eff.start, end: eff.end, days: true }));
-      put("#an-rate", lineChart([{ name: "Import", color: "#e45649", data: rate["sensor.agl_plan_import_rate"] }, { name: "Feed-in", color: "#50a14f", data: rate["sensor.agl_plan_feed_in_rate"] }], { step: true, min: 0, start: rate.start, end: rate.end }));
+    if (tab === "analytics") {
+      const body = q("#an-body");
+      if (body && this._en) {
+        body.innerHTML = this._anBody();
+        body.querySelectorAll("[data-anr]").forEach(b => b.onclick = () => { this._anRange = Number(b.dataset.anr); this._paintMore("analytics"); });
+      }
+      if (this._an) {
+        const { sol, rate } = this._an, ids = ["sensor.sungrow_pv", "sensor.pv_forecast_power_now"];
+        put("#an-sol", lineChart([{ name: "Actual PV", color: "#FFB300", data: sol[ids[0]], area: true }, { name: "Forecast", color: "#00B0FF", data: sol[ids[1]] }], { start: sol.start, end: sol.end, min: 0, h: 220, w: 1100 }));
+        put("#an-rate", lineChart([{ name: "Import", color: "#e45649", data: rate["sensor.agl_plan_import_rate"] }, { name: "Feed-in", color: "#50a14f", data: rate["sensor.agl_plan_feed_in_rate"] }], { step: true, min: 0, start: rate.start, end: rate.end }));
+      }
     }
   }
 
@@ -755,16 +887,11 @@ class CortexStudio extends HTMLElement {
   _paintHistory() {
     const el = this._root.querySelector("#hchart"), tot = this._root.querySelector("#htotals");
     if (!el || !this._daily) return;
-    const s = this._data.studio || {};
-    const keys = [[s.day_pv, C.solar], [s.day_load, C.home], [s.day_import, C.grid], [s.day_export, C.shoulder]];
-    const dayKey = t => new Date(t).toLocaleDateString("en-CA");
+    const c = this._enCompute();
+    if (!c) { el.innerHTML = `<div class="muted">No daily statistics yet.</div>`; return; }
+    const keys = [[0, C.solar], [0, C.home], [0, C.grid], [0, C.shoulder]];
     const days = new Map();
-    keys.forEach(([id], si) => {
-      (this._daily[id] || []).forEach(r => {
-        const k = dayKey(r.start); const row = days.get(k) || [0, 0, 0, 0];
-        row[si] = r.max ?? 0; days.set(k, row);
-      });
-    });
+    c.days.slice(-this._range).forEach(d => days.set(d.key, [d.pv, d.used, d.imp, d.exp]));
     const rows = [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     if (!rows.length) { el.innerHTML = `<div class="muted">No daily statistics yet. They appear once Home Assistant has compiled a day of data.</div>`; return; }
     const W = 900, H = 260, L = 34, T = 10, B = 26, gw = (W - L - 6) / rows.length;
@@ -821,7 +948,8 @@ function lineChart(series, o = {}) {
   let g = "";
   for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)}</text>`; }
   let lab = "";
-  if (o.start) for (let k = 0; k <= 6; k++) { const t = new Date(o.start.getTime() + (o.end - o.start) * k / 6); lab += `<text x="${x(k / 6 * (n - 1))}" y="${H - 6}" text-anchor="middle" class="ax">${o.days ? t.toLocaleDateString([], { weekday: "short" }) : t.getHours() + ":00"}</text>`; }
+  if (o.labels) { const st = Math.max(1, Math.ceil(n / 8)); o.labels.forEach((t, i) => { if (i % st === 0) lab += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" class="ax">${esc(t)}</text>`; }); }
+  else if (o.start) for (let k = 0; k <= 6; k++) { const t = new Date(o.start.getTime() + (o.end - o.start) * k / 6); lab += `<text x="${x(k / 6 * (n - 1))}" y="${H - 6}" text-anchor="middle" class="ax">${o.days ? t.toLocaleDateString([], { weekday: "short" }) : t.getHours() + ":00"}</text>`; }
   const path = (d, step) => d.map((v, i) => v === null ? "" : (i && d[i - 1] !== null ? (step ? `H${x(i).toFixed(1)}V` : "L") : "M") + (step && i && d[i - 1] !== null ? y(v).toFixed(1) : x(i).toFixed(1) + " " + y(v).toFixed(1))).join("");
   const body = series.map(s => {
     const d = path(s.data, o.step);
@@ -834,12 +962,12 @@ function legend(series) { return `<div class="lg">${series.map(s => `<span><b st
 function barChart(days, series, o = {}) {
   const W = o.w || 520, H = o.h || 200, L = 40, R = 12, T = 10, B = 22, n = days.length;
   if (!n) return `<div class="muted" style="padding:20px">No data yet.</div>`;
-  const hi = Math.max(...series.flatMap(s => s.data.map(v => v || 0)), 1) * 1.1, gw = (W - L - R) / n, bw = gw / (series.length + 1);
+  const hi = Math.max(...series.flatMap(s => s.data.map(v => v || 0)), 1) * 1.1, gw = (W - L - R) / n, bw = gw / (series.length + 1), every = o.every || Math.ceil(n / 14), dec = o.dec ?? 1, unit = o.unit || "";
   const y = v => T + (1 - v / hi) * (H - T - B);
   let g = "";
-  for (let k = 0; k <= 4; k++) { const v = hi * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${v.toFixed(0)}</text>`; }
-  const bars = days.map((d, i) => series.map((s, j) => { const v = s.data[i] || 0; return `<rect x="${L + i * gw + bw / 2 + j * bw}" y="${y(v)}" width="${bw - 1}" height="${H - B - y(v)}" rx="2" fill="${s.color}"><title>${s.name} ${v.toFixed(1)}</title></rect>`; }).join("")
-    + `<text x="${L + i * gw + gw / 2}" y="${H - 6}" text-anchor="middle" class="ax">${d}</text>`).join("");
+  for (let k = 0; k <= 4; k++) { const v = hi * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${v.toFixed(hi >= 10 ? 0 : 1)}</text>`; }
+  const bars = days.map((d, i) => series.map((s, j) => { const v = s.data[i] || 0; return `<rect x="${L + i * gw + bw / 2 + j * bw}" y="${y(v)}" width="${bw - 1}" height="${H - B - y(v)}" rx="2" fill="${s.color}"><title>${d}: ${s.name} ${unit}${v.toFixed(dec)}</title></rect>`; }).join("")
+    + (i % every === 0 ? `<text x="${L + i * gw + gw / 2}" y="${H - 6}" text-anchor="middle" class="ax">${d}</text>` : "")).join("");
   return `<div class="chart" style="height:${H}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${bars}</svg></div>${legend(series)}`;
 }
 
