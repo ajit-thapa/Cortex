@@ -179,6 +179,7 @@ class CortexStudio extends HTMLElement {
   _build() {
     this._root = this.attachShadow({ mode: "open" });
     this._root.innerHTML = `<style>${CSS}</style>
+      <div class="bg" aria-hidden="true"></div>
       <header><h1>🧠 Cortex</h1><nav id="tabs"></nav><span id="clock" class="muted"></span></header>
       <main id="view"></main>`;
     const nav = this._root.querySelector("#tabs");
@@ -1158,8 +1159,10 @@ function flowSvg(f) {
 }
 
 const CSS = `
-:host{display:block;box-sizing:border-box;min-height:100%;padding:16px 16px 40px;color:var(--primary-text-color);
+:host{display:block;position:relative;isolation:isolate;box-sizing:border-box;min-height:100%;padding:16px 16px 40px;color:var(--primary-text-color);
   background:var(--primary-background-color);font-family:var(--paper-font-body1_-_font-family,system-ui,sans-serif)}
+.bg{position:absolute;inset:0;z-index:-1;pointer-events:none;background:url(/cortex_static/home-scene.webp) center 20%/cover no-repeat fixed;opacity:.55;
+  -webkit-mask-image:linear-gradient(#000 40%,transparent);mask-image:linear-gradient(#000 40%,transparent)}
 header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1300px;margin:0 auto 14px}
 h1{font-size:22px;margin:0;font-weight:600}
 h2{font-size:14px;margin:0 0 10px;font-weight:600;opacity:.85;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -1168,7 +1171,7 @@ nav button{border:0;background:transparent;color:var(--secondary-text-color);pad
 nav button.on{background:var(--primary-color);color:var(--text-primary-color,#fff)}
 #clock{margin-left:auto}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;max-width:1300px;margin:0 auto}
-.card{background:var(--card-background-color);border-radius:16px;padding:16px;box-shadow:var(--ha-card-box-shadow,0 1px 3px #0002);min-width:0}
+.card{background:color-mix(in srgb,var(--card-background-color) 86%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:16px;padding:16px;box-shadow:var(--ha-card-box-shadow,0 1px 3px #0002);min-width:0}
 .wide{grid-column:1/-1}
 .muted{opacity:.62;font-size:13px}
 .big{font-size:30px;font-weight:600;line-height:1.2} .big small{font-size:14px;font-weight:400;opacity:.6;margin-left:4px}
