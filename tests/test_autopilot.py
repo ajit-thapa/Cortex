@@ -186,3 +186,20 @@ async def test_autopilot_overrides_plain_timers(hass: HomeAssistant):
 async def test_off_mode_schedules_nothing(hass: HomeAssistant):
     brain = await _setup(hass, autopilot_mode="off")
     assert brain.autopilot.mode == "off" and not brain.autopilot._unsubs
+
+
+async def test_hung_model_falls_back_to_rules(hass: HomeAssistant, monkeypatch):
+    import asyncio
+
+    from custom_components.cortex import autopilot as ap
+
+    _device(hass)
+
+    async def hang(call):
+        await asyncio.sleep(30)
+
+    hass.services.async_register("conversation", "process", hang, supports_response=SupportsResponse.ONLY)
+    monkeypatch.setattr(ap, "MODEL_TIMEOUT", 0.05)
+    brain = await _setup(hass, autopilot_mode="shadow")
+    d = await brain.autopilot.decide("topup")
+    assert d["source"] == "baseline" and d["do"]
