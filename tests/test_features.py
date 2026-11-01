@@ -315,3 +315,26 @@ async def test_overview_carries_studio_sources(hass: HomeAssistant, hass_ws_clie
     assert studio["pv"] == "sensor.sungrow_pv" and studio["grid"] == "sensor.neovolt_online_grid"
     assert studio["grid_invert"] is False and studio["day_pv"].endswith("pv_generated_today")
     assert msg["result"]["energy"]["low_solar"] == 30.0
+
+
+# ---- house health --------------------------------------------------------------
+async def test_health_names_offline_devices_after_a_grace_period(hass: HomeAssistant):
+    async_mock_service(hass, "notify", "send_message")
+    brain = await _setup(hass)
+    hass.states.async_set("switch.pv_export", "unavailable", {"friendly_name": "Neovolt Online PV Export"})
+    assert await brain.run_health() == []  # just went offline: not a fault yet
+    brain._offline_since["switch.pv_export"] -= timedelta(minutes=31)
+    assert await brain.run_health() == ["Neovolt Online PV Export is offline"]
+    hass.states.async_set("switch.pv_export", "on", {"friendly_name": "Neovolt Online PV Export"})
+    assert await brain.run_health() == [] and not brain._offline_since
+
+
+async def test_health_ignore_list_and_battery_unit(hass: HomeAssistant):
+    async_mock_service(hass, "notify", "send_message")
+    brain = await _setup(hass, health_ignore=["switch.pv_export"])
+    hass.states.async_set("switch.pv_export", "unavailable", {"friendly_name": "Neovolt Online PV Export"})
+    brain._offline_since["switch.pv_export"] = dt_util.utcnow() - timedelta(hours=2)
+    # a battery-class sensor that is not a percentage (a storage system's kWh) must not count as a dying battery
+    hass.states.async_set("sensor.house_battery_energy", "3", {"device_class": "battery", "unit_of_measurement": "kWh", "friendly_name": "House battery"})
+    hass.states.async_set("sensor.door_battery", "9", {"device_class": "battery", "unit_of_measurement": "%", "friendly_name": "Door"})
+    assert await brain.run_health() == ["Door battery at 9%"]

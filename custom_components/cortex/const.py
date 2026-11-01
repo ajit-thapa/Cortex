@@ -36,6 +36,7 @@ CONF_NIGHT_END = "night_end"
 CONF_DOORBELL = "doorbell_entities"
 CONF_DOORBELL_CAMERA = "doorbell_camera"
 CONF_LEARN = "learn_entities"
+CONF_HEALTH_IGNORE = "health_ignore"  # entities house health never reports
 
 # Autopilot: local-AI energy decisions inside hard guardrails
 CONF_AP_MODE = "autopilot_mode"  # off | shadow | auto
@@ -116,6 +117,7 @@ DEFAULTS: dict[str, object] = {
     CONF_DOORBELL: [],
     CONF_DOORBELL_CAMERA: None,
     CONF_LEARN: [],
+    CONF_HEALTH_IGNORE: [],
     CONF_AP_MODE: "shadow",
     CONF_AP_LLM: True,
     CONF_AP_NIGHT: 0.35,

@@ -106,7 +106,8 @@
           "night_end": "Night ends",
           "doorbell_entities": "Doorbell or ring sensors",
           "doorbell_camera": "Doorbell camera",
-          "learn_entities": "Entities to learn routines from"
+          "learn_entities": "Entities to learn routines from",
+          "health_ignore": "Entities house health should ignore"
         }
       },
       "studio": {

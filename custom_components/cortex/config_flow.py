@@ -58,6 +58,7 @@ SECTIONS: dict[str, dict[str, Any]] = {
         CONF_DOORBELL: _entity("binary_sensor", "event", multiple=True),
         CONF_DOORBELL_CAMERA: _entity("camera"),
         CONF_LEARN: _entity("light", "switch", "lock", "cover", "binary_sensor", multiple=True),
+        CONF_HEALTH_IGNORE: sel.EntitySelector(sel.EntitySelectorConfig(multiple=True)),
     },
     "autopilot": {
         CONF_AP_MODE: sel.SelectSelector(

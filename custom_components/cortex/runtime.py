@@ -26,6 +26,7 @@ from .const import (
     CONF_AGENT,
     CONF_AI_PER_HOUR,
     CONF_AI_TASK,
+    CONF_HEALTH_IGNORE,
     CONF_AUTO_EXPORT,
     CONF_AUTO_TOPUP,
     CONF_BANNED,
@@ -68,6 +69,7 @@ SOURCE_KEYS = (
     CONF_EV_TARGET, CONF_HOLIDAYS,
 )
 LOW_BATTERY = 15
+OFFLINE_AFTER = timedelta(minutes=30)  # a restart or a Wi-Fi blip is not a fault
 VOICE_STATES = {"listening", "processing", "responding"}
 
 
@@ -103,6 +105,7 @@ class Cortex:
         self._unsubs: list[Callable[[], None]] = []
         self._timers: dict[str, Callable[[], None]] = {}
         self._known_issues: set[str] = set()
+        self._offline_since: dict[str, datetime] = {}
 
     @property
     def features(self):
@@ -495,13 +498,16 @@ class Cortex:
 
     async def run_health(self) -> list[str]:
         issues: list[str] = []
+        ignore = set(self.opts.get(CONF_HEALTH_IGNORE) or [])
         for state in self.hass.states.async_all():
+            if state.entity_id in ignore:
+                continue
             domain = state.domain
             name = state.attributes.get("friendly_name", state.entity_id)
             dc = state.attributes.get("device_class")
             if domain == "binary_sensor" and dc == "battery" and state.state == "on":
                 issues.append(f"{name} has a low battery")
-            elif domain == "sensor" and dc == "battery":
+            elif domain == "sensor" and dc == "battery" and state.attributes.get("unit_of_measurement") == "%":
                 try:
                     if float(state.state) < LOW_BATTERY:
                         issues.append(f"{name} battery at {float(state.state):.0f}%")
@@ -509,12 +515,24 @@ class Cortex:
                     pass
             elif domain == "update" and state.state == "on":
                 issues.append(f"Update available for {name}")
-        unavailable = [
-            s for s in self.hass.states.async_all(("light", "switch", "climate", "lock", "cover"))
-            if s.state == "unavailable"
-        ]
-        if unavailable:
-            issues.append(f"{len(unavailable)} devices are offline")
+        now = dt_util.utcnow()
+        offline: list[str] = []
+        seen: set[str] = set()
+        for s in self.hass.states.async_all(("light", "switch", "climate", "lock", "cover")):
+            if s.state != "unavailable" or s.entity_id in ignore:
+                continue
+            seen.add(s.entity_id)
+            since = self._offline_since.setdefault(s.entity_id, now)
+            if now - since >= OFFLINE_AFTER:
+                offline.append(s.attributes.get("friendly_name", s.entity_id))
+        for gone in set(self._offline_since) - seen:
+            del self._offline_since[gone]
+        if offline:
+            offline.sort()
+            if len(offline) <= 3:
+                issues.append(f"{', '.join(offline)} {'is' if len(offline) == 1 else 'are'} offline")
+            else:
+                issues.append(f"{len(offline)} devices are offline: {', '.join(offline[:3])} and {len(offline) - 3} more")
         self.health = sorted(issues)
         fresh = {i for i in issues if "Update available" not in i} - self._known_issues
         self._known_issues = {i for i in issues if "Update available" not in i}
