@@ -843,37 +843,91 @@ function barChart(days, series, o = {}) {
   return `<div class="chart" style="height:${H}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${bars}</svg></div>${legend(series)}`;
 }
 
-// ---- battery symbol -------------------------------------------------------
+// ---- battery visuals: Neovolt ESS tower and SUV, optional PNG overrides --------
 const levelColor = p => (p === null ? "#757575" : p < 20 ? C.peak : p < 40 ? C.off_peak : C.shoulder);
+// Drop transparent PNGs here to replace the drawings: /config/www/cortex/<name>.png
+const BIMG = { house: "/local/cortex/neovolt-ess.png", ev: "/local/cortex/byd-sealion-7.png" };
+const CAR_BODY = "M28 128C28 112 36 106 52 104L78 100C86 84 104 62 140 54L240 50C276 50 300 64 322 90L366 100C384 104 394 112 394 126L394 138L28 138Z";
+
+function carSvg(k) {
+  return `<svg viewBox="0 0 420 170" class="battsvg car">
+    <defs><clipPath id="cb-${k}"><path d="${CAR_BODY}"/></clipPath><clipPath id="cf-${k}"><rect class="fclip" x="20" y="40" width="0" height="110"/></clipPath>
+      <linearGradient id="cg-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".4"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".25"/></linearGradient>
+      <linearGradient id="cs-${k}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+    <ellipse class="cglow" cx="210" cy="148" rx="170" ry="12"/>
+    <line class="cflow" x1="0" x2="200" y1="152" y2="152" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round"/>
+    <g clip-path="url(#cb-${k})"><path d="${CAR_BODY}" fill="currentColor" opacity=".12"/>
+      <rect class="bfill" x="20" y="40" width="0" height="110"/><rect class="bfill" style="fill:url(#cg-${k})" x="20" y="40" width="0" height="110"/>
+      <g clip-path="url(#cf-${k})"><rect class="bsheen" x="-80" y="40" width="80" height="110" fill="url(#cs-${k})"/></g></g>
+    <path d="${CAR_BODY}" fill="none" stroke="currentColor" stroke-width="3" opacity=".6" stroke-linejoin="round"/>
+    <path d="M112 92C118 77 132 66 152 62L236 60C262 60 282 72 298 92Z" style="fill:var(--card-background-color,#222)" opacity=".62" stroke="currentColor" stroke-opacity=".35"/>
+    <line x1="205" x2="205" y1="61" y2="92" stroke="currentColor" opacity=".35"/>
+    <path class="clamp" d="M384 112L394 116L394 123L384 121Z" fill="#fff59d"/>
+    <circle cx="46" cy="110" r="5" style="fill:var(--card-background-color,#222)" stroke="currentColor" opacity=".8"/><path class="cbolt" d="M47 104l-5 8h4l-2 7 6-9h-4z" fill="#fff59d"/>
+    <g class="wheels">${[100, 322].map(x => `<circle cx="${x}" cy="138" r="32" style="fill:var(--card-background-color,#222)"/><circle cx="${x}" cy="138" r="26" fill="#1c1c1c" stroke="currentColor" stroke-opacity=".5" stroke-width="2"/><g class="spin" style="transform-origin:${x}px 138px"><circle cx="${x}" cy="138" r="14" fill="#9e9e9e"/>${[0, 72, 144, 216, 288].map(a => `<line x1="${x}" y1="138" x2="${x + 14 * Math.cos(a * Math.PI / 180)}" y2="${138 + 14 * Math.sin(a * Math.PI / 180)}" stroke="#555" stroke-width="3"/>`).join("")}</g><circle cx="${x}" cy="138" r="4" fill="#333"/>`).join("")}</g>
+    <g class="bmarks"></g></svg>`;
+}
+function towerSvg(k) {
+  const mods = Array.from({ length: 5 }, (_, i) => `<rect x="36" y="${17 + i * 41}" width="108" height="3" style="fill:var(--card-background-color,#222)"/>`).join("");
+  const wave = "M-40 0" + Array.from({ length: 12 }, () => " q10 -6 20 0 t20 0").join("");
+  return `<svg viewBox="0 0 190 240" class="battsvg tower">
+    <defs><clipPath id="tb-${k}"><rect x="36" y="14" width="108" height="206" rx="10"/></clipPath>
+      <linearGradient id="tg-${k}" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".22"/><stop offset=".35" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#000" stop-opacity=".22"/></linearGradient></defs>
+    <rect x="30" y="224" width="120" height="8" rx="3" fill="currentColor" opacity=".35"/>
+    <g clip-path="url(#tb-${k})"><rect x="36" y="14" width="108" height="206" fill="currentColor" opacity=".08"/>
+      <g class="twrap"><g class="twaveg"><path class="bfill twv" d="${wave} V260 H-40Z"/></g></g>
+      <rect class="bfill tfl" x="36" y="220" width="108" height="0"/>${mods}
+      <rect x="36" y="14" width="108" height="206" fill="url(#tg-${k})"/></g>
+    <rect x="30" y="8" width="120" height="216" rx="14" fill="none" stroke="currentColor" stroke-width="3" opacity=".6"/>
+    <rect x="48" y="22" width="40" height="7" rx="3" fill="currentColor" opacity=".28"/><circle class="tled" cx="126" cy="26" r="4"/>
+    <g class="tflow">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 ${200 - i * 0} l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
+    <g class="bmarks"></g></svg>`;
+}
 function battHTML(key, label) {
-  const segs = Array.from({ length: 9 }, (_, i) => `<line x1="${10 + 19 * (i + 1)}" x2="${10 + 19 * (i + 1)}" y1="16" y2="84" stroke="var(--card-background-color,#fff)" stroke-width="2" opacity=".6"/>`).join("");
-  return `<div class="batt" data-b="${key}"><svg viewBox="0 0 224 100" class="battsvg">
-    <defs><clipPath id="bc-${key}"><rect x="10" y="16" width="190" height="68" rx="10"/></clipPath>
-      <clipPath id="fc-${key}"><rect class="fclip" x="10" y="16" width="0" height="68"/></clipPath>
-      <linearGradient id="bg-${key}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></linearGradient>
-      <linearGradient id="sh-${key}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
-    <rect x="4" y="10" width="202" height="80" rx="16" fill="none" stroke="currentColor" stroke-width="3" opacity=".55"/>
-    <rect x="208" y="36" width="10" height="28" rx="4" fill="currentColor" opacity=".55"/>
-    <g clip-path="url(#bc-${key})"><rect x="10" y="16" width="190" height="68" fill="currentColor" opacity=".07"/>
-      <rect class="bfill" x="10" y="16" width="0" height="68"/><rect class="bfill" style="fill:url(#bg-${key})" x="10" y="16" width="0" height="68"/>
-      <g clip-path="url(#fc-${key})"><rect class="bsheen" x="-50" y="16" width="60" height="68" fill="url(#sh-${key})"/></g>${segs}</g>
-    <g class="bmarks"></g>
-    <text class="bpct" x="105" y="62" text-anchor="middle"></text></svg>
-    <div class="battmeta"><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
+  return `<div class="batt ${key === "ev" ? "carw" : "towerw"}" data-b="${key}">
+    <div class="bstage">${key === "ev" ? carSvg(key) : towerSvg(key)}
+      <div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div></div></div>
+    <div class="battmeta"><span class="bbig"></span><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
+}
+function battImg(root) {
+  if (root._img !== undefined) return;
+  root._img = "pending";
+  const key = root.dataset.b, im = new Image();
+  im.onload = () => {
+    root._img = "ok";
+    const wrap = root.querySelector(".bimg"), pic = wrap.querySelector("img");
+    pic.src = BIMG[key]; wrap.style.setProperty("--m", `url("${BIMG[key]}")`);
+    wrap.hidden = false; root.querySelector(".battsvg").style.display = "none"; root.classList.add("photo");
+    if (root._last) battSet(root, root._last);
+  };
+  im.onerror = () => { root._img = "no"; };
+  im.src = BIMG[key];
 }
 function battSet(root, o) {
   if (!root) return;
-  const w = o.pct === null || o.pct === undefined ? 0 : 190 * Math.max(0, Math.min(o.pct, 100)) / 100, col = levelColor(o.pct ?? null);
-  root.querySelectorAll(".bfill").forEach((r, i) => { r.style.width = w + "px"; if (!i) r.style.fill = col; });
-  root.querySelector(".fclip").style.width = w + "px";
-  const svg = root.querySelector(".battsvg");
-  svg.classList.toggle("chg", !!o.charging); svg.classList.toggle("dis", !!o.discharging); svg.style.setProperty("--bc", col);
-  root.querySelector(".bpct").textContent = o.pct === null || o.pct === undefined ? "–" : Math.round(o.pct) + "%";
+  root._last = o; battImg(root);
+  const pct = o.pct === null || o.pct === undefined ? null : Math.max(0, Math.min(o.pct, 100)), p = pct ?? 0, col = levelColor(pct), ev = root.dataset.b === "ev";
+  root.classList.toggle("chg", !!o.charging); root.classList.toggle("dis", !!o.discharging); root.style.setProperty("--bc", col);
+  root.querySelector(".bbig").textContent = pct === null ? "–" : Math.round(pct) + "%";
   root.querySelector(".bsub").textContent = o.sub || "";
-  root.querySelector(".bmarks").innerHTML = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined).map(m => {
-    const x = 10 + 190 * m.pct / 100;
-    return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="${x}" x2="${x}" y1="8" y2="92" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="${x}" cy="8" r="4" fill="${m.color}"/></g>`;
-  }).join("");
+  const marks = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined);
+  if (root._img === "ok") {
+    const wrap = root.querySelector(".bimg");
+    wrap.style.setProperty(ev ? "--r" : "--t", (100 - p) + "%");
+    root.querySelector(".bimk").innerHTML = marks.map(m => `<i title="${esc(m.label)} ${Math.round(m.pct)}%" style="background:${m.color};${ev ? `left:${m.pct}%;top:0;bottom:0;width:3px` : `bottom:${m.pct}%;left:0;right:0;height:3px`}"></i>`).join("");
+    return;
+  }
+  root.querySelectorAll(".bfill").forEach((r, i) => { if (!i || r.classList.contains("twv") || r.classList.contains("tfl")) r.style.fill = col; });
+  if (ev) {
+    const w = 372 * p / 100;
+    root.querySelectorAll(".bfill").forEach(r => { r.style.width = w + "px"; }); root.querySelector(".fclip").style.width = w + "px";
+    root.querySelector(".bmarks").innerHTML = marks.map(m => { const x = 20 + 372 * m.pct / 100; return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="${x}" x2="${x}" y1="40" y2="150" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="${x}" cy="40" r="4" fill="${m.color}"/></g>`; }).join("");
+  } else {
+    const h = 206 * p / 100, y = 220 - h;
+    const tf = root.querySelector(".tfl"); tf.style.y = y + "px"; tf.style.height = h + "px";
+    root.querySelector(".twrap").style.transform = `translateY(${y + 2}px)`;
+    root.querySelector(".bmarks").innerHTML = marks.map(m => { const my = 220 - 206 * m.pct / 100; return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="26" x2="154" y1="${my}" y2="${my}" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="26" cy="${my}" r="4" fill="${m.color}"/></g>`; }).join("");
+  }
 }
 
 // ---- SVG pieces ---------------------------------------------------------
@@ -981,19 +1035,36 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .stat b small{font-size:12px;font-weight:400;opacity:.6;margin-left:3px}
 .num{width:90px;text-align:right;background:var(--card-background-color);color:inherit;border:1px solid var(--divider-color);border-radius:8px;padding:4px 6px}
 
-.battstack{display:flex;flex-direction:column;gap:18px}
-.batt{display:flex;flex-direction:column;gap:6px;color:var(--primary-text-color)}
-.battsvg{width:100%;max-width:340px;display:block;margin:0 auto;overflow:visible}
-.bfill{transition:width 1s ease,fill .6s}
-.fclip{transition:width 1s ease}
-.bpct{font-size:30px;font-weight:700;fill:#fff;stroke:#0008;stroke-width:3px;paint-order:stroke}
-.bsheen{opacity:0}
-.chg .bsheen,.dis .bsheen{opacity:1;animation:sheen 1.8s linear infinite}
-.dis .bsheen{animation-direction:reverse;animation-duration:2.8s}
-.chg{filter:drop-shadow(0 0 7px var(--bc))}
-@keyframes sheen{from{transform:translateX(0)}to{transform:translateX(250px)}}
-.battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px}
-.battmeta b{font-size:15px}
+.battstack{display:flex;flex-direction:column;gap:22px}
+.batt{display:flex;flex-direction:column;gap:6px;color:var(--primary-text-color);--bc:#66bb6a}
+.towerw{flex-direction:row;align-items:center;gap:18px}.towerw .bstage{flex:0 0 42%;max-width:190px}.towerw .battmeta{align-items:flex-start;text-align:left}
+.battsvg{width:100%;display:block;margin:0 auto;overflow:visible}.car{max-width:380px}
+.bfill{transition:width 1s ease,y 1s ease,height 1s ease,fill .6s}.fclip{transition:width 1s ease}
+.chg .battsvg,.chg .bimg{filter:drop-shadow(0 0 8px var(--bc))}
+.bsheen{opacity:0}.chg .bsheen{opacity:1;animation:sheen 2s linear infinite}
+@keyframes sheen{from{transform:translateX(0)}to{transform:translateX(480px)}}
+.cglow{fill:var(--bc);opacity:0;filter:blur(8px)}.chg .cglow{opacity:.5;animation:glow 2s ease-in-out infinite}
+.cflow{stroke:var(--bc);opacity:0}.chg .cflow{opacity:.8;animation:dashmove 0.8s linear infinite}@keyframes dashmove{to{stroke-dashoffset:-16}}
+.cbolt{opacity:0}.chg .cbolt{animation:pulse 1.1s ease-in-out infinite}@keyframes pulse{50%{opacity:1}0%,100%{opacity:.15}}
+.clamp{opacity:.25}.chg .clamp{opacity:.9}
+.spin{animation:none}.chg .spin{animation:none}
+.twaveg{animation:wavex 2.4s linear infinite}@keyframes wavex{to{transform:translateX(40px)}}
+.twrap{transition:transform 1s ease}
+.tled{fill:#66bb6a;animation:blink 2s ease-in-out infinite}@keyframes blink{50%{opacity:.25}}
+.tflow{opacity:0}.tch{stroke:var(--bc);opacity:0}
+.chg .tflow,.dis .tflow{opacity:1}
+.chg .tch{animation:up 1.6s linear infinite}.dis .tch{animation:down 1.6s linear infinite}
+@keyframes up{0%{transform:translateY(20px);opacity:0}30%{opacity:1}100%{transform:translateY(-150px);opacity:0}}
+@keyframes down{0%{transform:translateY(-150px);opacity:0}30%{opacity:1}100%{transform:translateY(20px);opacity:0}}
+.bstage{position:relative}
+.bimg{position:relative;width:100%;max-width:380px;margin:0 auto}.bimg img{width:100%;display:block;filter:grayscale(1) brightness(.6);opacity:.4}
+.bfl{position:absolute;inset:0;-webkit-mask-image:var(--m);mask-image:var(--m);-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+  background:linear-gradient(105deg,var(--bc) 0 40%,color-mix(in srgb,var(--bc) 55%,#fff) 50%,var(--bc) 60% 100%);background-size:250% 100%;transition:clip-path 1s ease}
+.carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
+.chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
+.bimk{position:absolute;inset:0;pointer-events:none}.bimk i{position:absolute;opacity:.9}
+.battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px;gap:2px}
+.battmeta b{font-size:15px}.bbig{font-size:34px;font-weight:700;line-height:1.1;color:var(--bc)}
 .evside .batt{margin-bottom:4px}
 
 .visgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
