@@ -974,7 +974,7 @@ function barChart(days, series, o = {}) {
 // ---- battery visuals: Neovolt ESS tower and SUV, optional PNG overrides --------
 const levelColor = p => (p === null ? "#757575" : p < 20 ? C.peak : p < 40 ? C.off_peak : C.shoulder);
 // Drop transparent PNGs here to replace the drawings: /config/www/cortex/<name>.png
-const BIMG = { house: "/local/cortex/neovolt-ess.png", ev: "/local/cortex/byd-sealion-7.png" };
+const BIMG = { house: "/local/cortex/neovolt-ess.png", ev: EV.img }; // EV: the real BYD photo from the HA image entity
 const CAR_BODY = "M26 132C20 126 18 106 21 94C24 86 38 80 62 72C100 52 142 26 192 18C222 14 262 14 294 22C324 30 348 58 364 72C382 78 410 86 420 98C426 106 426 120 422 132L416 140L34 140Z";
 const CAR_GLASS = "M348 70C332 44 312 33 288 27L196 26C160 30 120 52 88 70Z";
 function carSvg(k) {
@@ -1022,6 +1022,7 @@ function battHTML(key, label) {
   return `<div class="batt ${key === "ev" ? "carw" : "towerw"}" data-b="${key}">
     <div class="bstage">${key === "ev" ? carSvg(key) : towerSvg(key)}
       <div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div></div></div>
+    ${key === "ev" ? `<div class="bbar" hidden><i></i><span class="bmk"></span></div>` : ""}
     <div class="battmeta"><span class="bbig"></span><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
 }
 function cutout(im) {
@@ -1050,9 +1051,10 @@ function battImg(root) {
   im.onload = () => {
     root._img = "ok";
     const wrap = root.querySelector(".bimg"), pic = wrap.querySelector("img");
-    const src = cutout(im) || BIMG[key];
+    const plain = key === "ev", src = plain ? BIMG.ev : (cutout(im) || BIMG[key]);
     pic.src = src; wrap.style.setProperty("--m", `url("${src}")`);
     wrap.hidden = false; root.querySelector(".battsvg").style.display = "none"; root.classList.add("photo");
+    if (plain) { root._img = "plain"; wrap.classList.add("plain"); root.querySelector(".bbar").hidden = false; }
     if (root._last) battSet(root, root._last);
   };
   im.onerror = () => { root._img = "no"; };
@@ -1066,6 +1068,12 @@ function battSet(root, o) {
   root.querySelector(".bbig").textContent = pct === null ? "–" : Math.round(pct) + "%";
   root.querySelector(".bsub").textContent = o.sub || "";
   const marks = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined);
+  if (root._img === "plain") {
+    const bar = root.querySelector(".bbar");
+    bar.querySelector("i").style.width = p + "%";
+    bar.querySelector(".bmk").innerHTML = marks.map(m => `<u title="${esc(m.label)} ${Math.round(m.pct)}%" style="left:${m.pct}%;background:${m.color}"></u>`).join("");
+    return;
+  }
   if (root._img === "ok") {
     const wrap = root.querySelector(".bimg");
     wrap.style.setProperty(ev ? "--r" : "--t", (100 - p) + "%");
@@ -1217,6 +1225,12 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
   background:linear-gradient(105deg,var(--bc) 0 40%,color-mix(in srgb,var(--bc) 55%,#fff) 50%,var(--bc) 60% 100%);background-size:250% 100%;transition:clip-path 1s ease}
 .carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
 .chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
+.bimg.plain img{filter:drop-shadow(0 14px 14px #0006);opacity:1}.bimg.plain .bfl,.bimg.plain .bimk{display:none}
+.chg .bimg.plain img{animation:carpulse 2.4s ease-in-out infinite}@keyframes carpulse{50%{filter:drop-shadow(0 10px 22px var(--bc))}}
+.bbar{position:relative;width:100%;height:12px;border-radius:6px;background:var(--divider-color);margin:12px auto 4px;max-width:380px;overflow:hidden}
+.bbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--bc);border-radius:6px;transition:width 1s}
+.chg .bbar i{background-image:linear-gradient(105deg,transparent 0 40%,#fff7 50%,transparent 60%);background-size:250% 100%;animation:photo 2.2s linear infinite}
+.bbar u{position:absolute;top:0;bottom:0;width:3px}
 .bimk{position:absolute;inset:0;pointer-events:none}.bimk i{position:absolute;opacity:.9}
 .battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px;gap:2px}
 .battmeta b{font-size:15px}.bbig{font-size:34px;font-weight:700;line-height:1.1;color:var(--bc)}
