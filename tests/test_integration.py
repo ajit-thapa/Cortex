@@ -114,3 +114,16 @@ async def test_sensors_fill_when_sources_appear_after_start(hass: HomeAssistant)
     await hass.async_block_till_done()
     assert float(hass.states.get("sensor.cortex_battery_stored").state) == 25.0
     assert hass.states.get(f"sensor.cortex_storage_summary").state.startswith("Battery 25.0/50")
+
+
+async def test_llm_tools_declare_integration_and_return_dicts(hass: HomeAssistant):
+    await _setup(hass)
+    api = await llm.async_get_api(
+        hass, DOMAIN,
+        llm.LLMContext(platform="test", context=None, language="en", assistant=None, device_id=None),
+    )
+    assert api.tools and all(getattr(t, "integration", None) == DOMAIN for t in api.tools)
+    tool = next(t for t in api.tools if t.name == "recall")
+    out = await tool.async_call(hass, llm.ToolInput("recall", {"query": ""}), api.llm_context)
+    data = getattr(out, "data", out)
+    assert "memories" in data

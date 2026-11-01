@@ -22,7 +22,15 @@ PROMPT = (
 )
 
 
+def _out(data: dict[str, Any]) -> Any:
+    """Wrap tool output in ToolResult where this Home Assistant has it."""
+    result = getattr(llm, "ToolResult", None)
+    return result(data=data) if result else data
+
+
 class _Tool(llm.Tool):
+    integration = DOMAIN  # required for custom tools from HA 2027.10
+
     def __init__(self, brain: Cortex) -> None:
         self.brain = brain
 
@@ -40,7 +48,7 @@ class RememberTool(_Tool):
     async def async_call(self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext) -> dict[str, Any]:
         args = tool_input.tool_args
         memory = self.brain.remember(args["text"], args.get("category", "fact"), "llm")
-        return {"saved": memory.text, "id": memory.id}
+        return _out({"saved": memory.text, "id": memory.id})
 
 
 class RecallTool(_Tool):
@@ -50,7 +58,7 @@ class RecallTool(_Tool):
 
     async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
         found = self.brain.book.recall(tool_input.tool_args.get("query", ""))
-        return {"memories": [m.text for m in found]}
+        return _out({"memories": [m.text for m in found]})
 
 
 class ForgetTool(_Tool):
@@ -60,7 +68,7 @@ class ForgetTool(_Tool):
 
     async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
         gone = self.brain.forget(tool_input.tool_args["memory"])
-        return {"forgotten": gone.text if gone else None}
+        return _out({"forgotten": gone.text if gone else None})
 
 
 class RemindTool(_Tool):
@@ -75,7 +83,7 @@ class RemindTool(_Tool):
         from datetime import timedelta
 
         item = self.brain.add_reminder(args["message"], dt_util.now() + timedelta(minutes=args["in_minutes"]))
-        return {"reminder": item["id"], "at": item["at"]}
+        return _out({"reminder": item["id"], "at": item["at"]})
 
 
 class EnergyStatusTool(_Tool):
@@ -87,7 +95,7 @@ class EnergyStatusTool(_Tool):
         self.brain.refresh()
         s = dict(self.brain.snapshot)
         s["next_change"] = s["next_change"].isoformat()
-        return s
+        return _out(s)
 
 
 class RunRoutineTool(_Tool):
@@ -98,9 +106,9 @@ class RunRoutineTool(_Tool):
     async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
         name = tool_input.tool_args["name"]
         if name not in self.brain.routines.items:
-            return {"error": f"No routine called {name}", "known": sorted(self.brain.routines.items)}
+            return _out({"error": f"No routine called {name}", "known": sorted(self.brain.routines.items)})
         await self.brain.routines.run(name)
-        return {"ran": name}
+        return _out({"ran": name})
 
 
 class SecurityCheckTool(_Tool):
@@ -109,7 +117,7 @@ class SecurityCheckTool(_Tool):
     parameters = vol.Schema({})
 
     async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
-        return self.brain.security.check()
+        return _out(self.brain.security.check())
 
 
 class CortexAPI(llm.API):
