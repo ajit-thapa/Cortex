@@ -951,18 +951,23 @@ function towerSvg(k) {
     <g class="tflow tup">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 200 l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
     <g class="bmarks"></g></svg>`;
 }
-// ---- house scene: live badges and flow lines over the illustration ------------------
-const SC = { img: "/cortex_static/home-scene.jpg",
-  paths: { pv: "M815 268V448", bat: "M806 468H774", ev: "M815 484V540H690L540 513V440", home: "M832 452H864", grid: "M815 540L905 570" } };
+// ---- house scene: live badges and animated flow lines over the illustration ----------
+// Flow lines trace the wires baked into the artwork (1024x730). Line speed follows the power
+// (more kW = faster), direction follows the sign, idle lines fade out.
+const SC = { img: "/cortex_static/home-scene.webp",
+  paths: { solar: "M618 180c23 6 35 11 40 32l0 188", grid: "M69 727l640-120c72-14 78-20 38-33c-59-23-89-23-86-66l0-50",
+    battery: "M642 432l-42 6", home: "M673 426l86-14", vehicle: "M652 458l0 55c0 15-15 14-81 26c-59 11-75 12-101 2l-120-60" },
+  col: { solar: "#ffd54f", grid: "#64b5f6", battery: "#4dd0a0", home: "#ff9d4d", vehicle: "#ef5350" } };
 function sceneHTML() {
-  const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sf sf-${k}" d="${d}"/>`).join("");
-  return `<img src="${SC.img}" alt="Home energy"><svg class="xov" viewBox="170 100 930 540" preserveAspectRatio="xMidYMid meet">
-    <defs><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter></defs>
-    <polygon class="spv" points="572,160 818,262 700,355 462,270"/>
-    <ellipse class="scar" cx="478" cy="498" rx="64" ry="50" filter="url(#sbl)"/>
-    <rect class="sbglow" x="716" y="420" width="60" height="104" rx="12" filter="url(#sbl)"/>
-    ${towerSvg("sc").replace('<svg viewBox="0 0 190 240" class="battsvg tower">', '<svg class="stower" x="708" y="420" width="86" height="108" viewBox="0 0 190 240" overflow="visible" style="color:#444;--card-background-color:#f4f5fa">')}
-    ${paths}<g class="sbadges"></g></svg>`;
+  const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sf sf-${k}" d="${d}" style="--c:${SC.col[k]}"/>`).join("");
+  const tower = towerSvg("sc").replace('<svg viewBox="0 0 190 240" class="battsvg tower">', '<svg class="stower" x="523" y="381" width="96" height="121" viewBox="0 0 190 240" overflow="visible" style="color:#cfd8dc">');
+  return `<img src="${SC.img}" alt="Home energy"><svg class="xov" viewBox="0 0 1024 730" preserveAspectRatio="xMidYMax meet">
+    <defs><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="12"/></filter>
+      <filter id="sfg" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    <polygon class="spv" points="378,38 668,130 506,268 238,160"/>
+    <ellipse class="scar" cx="285" cy="470" rx="95" ry="66" filter="url(#sbl)"/>
+    <rect class="sbglow" x="520" y="378" width="104" height="128" rx="16" filter="url(#sbl)"/>
+    ${tower}<g filter="url(#sfg)">${paths}</g><g class="sbadges"></g></svg>`;
 }
 function towerLevel(el, p, col) {
   const h = 206 * p / 100, y = 220 - h;
@@ -976,18 +981,23 @@ function sceneSet(root, o) {
   set(".stower", e => { e.style.setProperty("--bc", bcol); e.classList.toggle("chg", f.batt > 0.05); e.classList.toggle("dis", f.batt < -0.05); towerLevel(e, bp ?? 0, bcol); });
   set(".sbglow", e => { e.style.fill = bcol; });
   set(".scar", e => { e.style.fill = o.charging ? C.shoulder : C.off_peak; });
-  set(".spv", e => { e.style.opacity = Math.min(f.pv / 6, 1) * 0.55; });
+  set(".spv", e => { e.style.opacity = Math.min(f.pv / 6, 1) * 0.5; });
   root.classList.toggle("bchg", f.batt > 0.05); root.classList.toggle("bdis", f.batt < -0.05);
   root.classList.toggle("cplug", !!(o.plugged || o.charging)); root.classList.toggle("cchg", !!o.charging);
-  const on = (k, v, rev, col) => set(".sf-" + k, e => { e.style.opacity = Math.abs(v) > 0.05 ? 1 : 0; e.style.stroke = col; e.classList.toggle("rev", !!rev); });
-  on("pv", f.pv, false, C.solar); on("bat", f.batt, f.batt < 0, C.batt); on("ev", f.ev, false, C.ev); on("home", f.home, false, C.home); on("grid", f.grid, f.grid > 0, C.grid);
-  const badge = (x, y, t, col) => { const w = t.length * 11.5 + 22; return `<g transform="translate(${x - w / 2} ${y - 17})"><rect width="${w}" height="34" rx="17" fill="#fff" stroke="${col}" stroke-width="3"/><text x="${w / 2}" y="24" text-anchor="middle" fill="#222" font-size="20" font-weight="700">${esc(t)}</text></g>`; };
+  // seconds per 96px of travel: fast at high power, slow at low; width grows with power
+  const flow = (k, kw, rev) => set(".sf-" + k, e => {
+    const a = Math.abs(kw), on = a > 0.05;
+    e.style.opacity = on ? 1 : 0; e.style.setProperty("--speed", Math.max(0.35, Math.min(3, 4 / (1 + a))).toFixed(2));
+    e.style.strokeWidth = (4 + Math.min(a, 8) * 0.7).toFixed(1); e.classList.toggle("rev", !!rev);
+  });
+  flow("solar", f.pv, false); flow("battery", f.batt, f.batt < 0); flow("vehicle", f.ev, false); flow("home", f.home, false); flow("grid", f.grid, f.grid < 0);
+  const badge = (x, y, t, col) => { const w = t.length * 12 + 24; return `<g transform="translate(${x - w / 2} ${y - 18})"><rect width="${w}" height="36" rx="18" fill="#fff" stroke="${col}" stroke-width="3"/><text x="${w / 2}" y="26" text-anchor="middle" fill="#222" font-size="21" font-weight="700">${esc(t)}</text></g>`; };
   const pc = v => (v === null || v === undefined ? "–" : Math.round(v) + "%");
-  set(".sbadges", e => { e.innerHTML = badge(690, 128, "☀ " + fx(f.pv) + " kW", C.solar)
-    + badge(745, 392, pc(bp) + (f.batt > 0.05 ? " ▼" : f.batt < -0.05 ? " ▲" : ""), bcol)
-    + badge(470, 412, pc(o.esoc) + (o.charging ? " ⚡" : ""), ecol)
-    + badge(940, 330, "Home " + fx(f.home) + " kW", C.home)
-    + badge(955, 604, Math.abs(f.grid) < 0.05 ? "Grid idle" : (f.grid > 0 ? "Import " : "Export ") + fx(Math.abs(f.grid)) + " kW", C.grid); });
+  set(".sbadges", e => { e.innerHTML = badge(180, 112, "☀ " + fx(f.pv) + " kW", C.solar)
+    + badge(571, 356, pc(bp) + (f.batt > 0.05 ? " ▼" : f.batt < -0.05 ? " ▲" : ""), bcol)
+    + badge(285, 330, pc(o.esoc) + (o.charging ? " ⚡" : ""), ecol)
+    + badge(845, 195, "Home " + fx(f.home) + " kW", C.home)
+    + badge(300, 700, Math.abs(f.grid) < 0.05 ? "Grid idle" : (f.grid > 0 ? "Import " : "Export ") + fx(Math.abs(f.grid)) + " kW", C.grid); });
 }
 // ---- BYD cutaway: battery pack fills to SOC, cable flows while charging -------
 const XR = { img: "/cortex_static/byd-cutaway.jpg", x: 618, y: 372, w: 457, h: 100 };
@@ -1215,13 +1225,14 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
   background:linear-gradient(105deg,var(--bc) 0 40%,color-mix(in srgb,var(--bc) 55%,#fff) 50%,var(--bc) 60% 100%);background-size:250% 100%;transition:clip-path 1s ease}
 .carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
 .chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
-.escene{position:relative;border-radius:16px;overflow:hidden;background:#f4f5fa;box-shadow:0 10px 30px #0004}.escene img{display:block;width:100%;height:auto}
+.escene{position:relative}.escene img{display:block;width:100%;height:auto}
 .estore{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:center}.epanels{display:grid;gap:14px}
 .esub{background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);border-radius:14px;padding:14px}
 @media (max-width:900px){.estore{grid-template-columns:1fr}}
-.spv{fill:#ffb300;mix-blend-mode:multiply;opacity:0;transition:opacity 1s}.sbglow,.scar{opacity:0}
-.sf{fill:none;stroke-width:7;stroke-linecap:round;stroke-dasharray:2 20;opacity:0;animation:xdash 1s linear infinite;transition:opacity .5s}.sf.rev{animation-direction:reverse}
-.bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.cplug .scar{opacity:.45}.cchg .scar{animation:xgl 1.6s ease-in-out infinite}
+.spv{fill:#ffb300;opacity:0;transition:opacity 1s;mix-blend-mode:screen}.sbglow,.scar{opacity:0}
+.sf{fill:none;stroke:var(--c);stroke-linecap:round;stroke-dasharray:10 22;opacity:0;animation:sdash calc(var(--speed,2) * 1s) linear infinite;transition:opacity .5s}.sf.rev{animation-direction:reverse}
+@keyframes sdash{to{stroke-dashoffset:-96}}
+.bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.cplug .scar{opacity:.32}.cchg .scar{animation:xgl 1.6s ease-in-out infinite}
 .xray{position:relative;width:min(calc(100% - 36px),780px);margin:0 auto;border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fff,#e8ecef);z-index:1;box-shadow:0 10px 30px #0005;transition:box-shadow .6s}
 .xray img{display:block;width:100%;height:auto}.xray.nox img{padding:10px;box-sizing:border-box;object-fit:contain}.xray.nox .xov{display:none}
 .xov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
