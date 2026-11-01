@@ -59,6 +59,7 @@ function tariffAt(h, r) {
 }
 const dayLabel = (key, long) => long ? key.slice(8) + "/" + key.slice(5, 7) : new Date(key + "T12:00").toLocaleDateString([], { weekday: "short" });
 const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["house", "Home"], ["assistant", "Assistant"]];
+const BG_PATHS = ["/local/simple_dreams_light.jpg", "/local/images/simple_dreams_light.jpg", "/local/backgrounds/simple_dreams_light.jpg", "/local/cortex/simple_dreams_light.jpg"];
 const CAT_ICON = { fact: "📌", preference: "⭐", person: "👤", place: "📍", routine: "🔁", note: "📝" };
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -182,6 +183,11 @@ class CortexStudio extends HTMLElement {
       <div class="bg" aria-hidden="true"></div>
       <header><h1>🧠 Cortex</h1><nav id="tabs"></nav><span id="clock" class="muted"></span></header>
       <main id="view"></main>`;
+    // Background photo from HA local storage (/config/www). First path that loads wins.
+    const bg = this._root.querySelector(".bg");
+    const tryBg = i => { if (i >= BG_PATHS.length) return; const im = new Image();
+      im.onload = () => { bg.style.backgroundImage = `url(${BG_PATHS[i]})`; bg.classList.add("on"); }; im.onerror = () => tryBg(i + 1); im.src = BG_PATHS[i]; };
+    tryBg(0);
     const nav = this._root.querySelector("#tabs");
     nav.innerHTML = TABS.map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join("");
     nav.querySelectorAll("button").forEach(b => b.onclick = () => this._go(b.dataset.tab));
@@ -1161,7 +1167,8 @@ function flowSvg(f) {
 const CSS = `
 :host{display:block;position:relative;isolation:isolate;box-sizing:border-box;min-height:100%;padding:16px 16px 40px;color:var(--primary-text-color);
   background:var(--primary-background-color);font-family:var(--paper-font-body1_-_font-family,system-ui,sans-serif)}
-.bg{position:absolute;inset:0;z-index:-1;pointer-events:none;background:url(/cortex_static/home-scene.webp) center 20%/cover no-repeat fixed;opacity:.55;
+.bg.on{opacity:.4}
+.bg{position:absolute;inset:0;z-index:-1;pointer-events:none;background:center 20%/cover no-repeat fixed;opacity:0;transition:opacity .6s;
   -webkit-mask-image:linear-gradient(#000 40%,transparent);mask-image:linear-gradient(#000 40%,transparent)}
 header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1300px;margin:0 auto 14px}
 h1{font-size:22px;margin:0;font-weight:600}
