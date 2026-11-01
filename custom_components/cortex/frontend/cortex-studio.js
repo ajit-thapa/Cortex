@@ -6,6 +6,7 @@ const C = {
 };
 const NS = "http://www.w3.org/2000/svg";
 const EV = {
+  img: "/api/image/serve/3215d9a31830fbbdda209ef2fddeae4b/original",
   soc: "sensor.byd_sealion_7_battery_level", power: "sensor.byd_sealion_7_battery_power",
   plug: "binary_sensor.byd_sealion_7_plug", charging: "binary_sensor.byd_sealion_7_charging",
   online: "binary_sensor.byd_sealion_7_online", remain: "sensor.byd_sealion_7_charge_remaining_time",
@@ -303,9 +304,13 @@ class CortexStudio extends HTMLElement {
     const wcA = EV.wcA.map((id, i) => `<div class="phase"><span>${"ABC"[i]}</span><div><i data-a="${i}"></i></div><b data-av="${i}">–</b></div>`).join("");
     const temps = EV.wcT.map(([n], i) => `<div class="phase"><span>${n}</span><div><i data-t="${i}"></i></div><b data-tv="${i}">–</b></div>`).join("");
     return `<section class="grid">
-      <div class="card evhero"><h2>BYD Sealion 7 <span id="ev-state" class="pill"></span></h2>
-        <div id="ev-ring"></div>
-        <div class="stats" id="ev-stats"></div></div>
+      <div class="card evhero wide"><div class="stage">
+          <div class="carbox"><img src="${EV.img}" alt="BYD Sealion 7" onerror="this.style.display='none'">
+            <div class="carglow" id="ev-glow"></div>
+            <div class="cartop"><span class="carname">BYD Sealion 7</span><span id="ev-state" class="pill"></span></div>
+            <div class="carbar"><div class="barbg"><i id="ev-fill"></i><u id="ev-mark"></u></div>
+              <div class="barlbl"><b id="ev-big"></b><span id="ev-sub" class="muted"></span></div></div></div>
+          <div class="evside"><div id="ev-ring"></div><div class="stats" id="ev-stats"></div></div></div></div>
       <div class="card"><h2>Charge planner <span class="muted">drag to set target</span></h2>
         <div class="big" id="ev-target-big"></div>
         <input type="range" id="ev-target" min="20" max="100" step="1" value="${this._evTarget ?? 80}" class="slider">
@@ -382,6 +387,13 @@ class CortexStudio extends HTMLElement {
       <text x="90" y="88" text-anchor="middle" class="evpct">${Math.round(pl.soc)}%</text>
       <text x="90" y="108" text-anchor="middle" class="ax" style="font-size:12px">${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh</text>
       <text x="90" y="126" text-anchor="middle" class="ax" style="font-size:11px">target ${pl.target}%</text></svg>`;
+    const fill = q("#ev-fill"); if (fill) {
+      fill.style.width = Math.max(0, Math.min(pl.soc, 100)) + "%"; fill.style.background = charging ? C.shoulder : C.ev;
+      q("#ev-mark").style.left = pl.target + "%";
+      q("#ev-big").textContent = Math.round(pl.soc) + "%";
+      q("#ev-sub").textContent = `${fx(pl.soc * pl.cap / 100, 1)} kWh · target ${pl.target}%` + (charging ? ` · ${fx(kwNow)} kW` : "");
+      q("#ev-glow").className = "carglow" + (charging ? " on" : "");
+    }
     q("#ev-stats").innerHTML = [
       ["Power", charging ? fx(kwNow) + " kW" : "–", C.ev], ["Time left", (st(EV.remain) || {}).state && st(EV.remain).state !== "unknown" ? st(EV.remain).state : "–", C.shoulder],
       ["Solar surplus", fx(pl.surplus) + " kW", C.solar], ["Locked", on(EV.locked) ? "no" : "yes", on(EV.locked) ? C.peak : C.shoulder],
@@ -638,6 +650,24 @@ button{cursor:pointer;border:0;border-radius:8px;padding:6px 12px;background:var
 input[type=time]{background:var(--card-background-color);color:inherit;border:1px solid var(--divider-color);border-radius:8px;padding:3px 6px}
 .phase{display:grid;grid-template-columns:44px 1fr 36px;gap:8px;align-items:center;margin:5px 0;font-size:13px}
 .phase div{height:10px;background:var(--divider-color);border-radius:5px;overflow:hidden} .phase i{display:block;height:100%;border-radius:5px;transition:width .6s} .phase b{text-align:right}
+
+.evhero{padding:0;overflow:hidden}
+.stage{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(240px,1fr)}
+.carbox{position:relative;min-height:280px;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(120% 90% at 50% 38%,color-mix(in srgb,var(--primary-color) 22%,transparent),transparent 70%),linear-gradient(180deg,transparent,#0003)}
+.carbox img{max-width:88%;max-height:210px;object-fit:contain;filter:drop-shadow(0 18px 18px #0006);position:relative;z-index:1;margin-bottom:34px}
+.carglow{position:absolute;left:12%;right:12%;bottom:62px;height:26px;border-radius:50%;background:radial-gradient(closest-side,#66bb6a88,transparent);opacity:0;transition:opacity .6s}
+.carglow.on{opacity:1;animation:glow 2s ease-in-out infinite}
+.cartop{position:absolute;top:14px;left:18px;right:18px;display:flex;justify-content:space-between;align-items:center;z-index:2}
+.carname{font-size:18px;font-weight:600;letter-spacing:.3px}
+.carbar{position:absolute;left:18px;right:18px;bottom:14px;z-index:2}
+.barbg{position:relative;height:12px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);overflow:visible}
+.barbg i{position:absolute;left:0;top:0;bottom:0;border-radius:7px;transition:width .8s,background .4s;box-shadow:0 0 12px currentColor}
+.barbg u{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1px;border-radius:2px;background:#ef6c00;text-decoration:none}
+.barlbl{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px}.barlbl b{font-size:22px}
+.evside{padding:18px;display:flex;flex-direction:column;justify-content:center;gap:10px;background:color-mix(in srgb,var(--primary-text-color) 4%,transparent)}
+.evside .evring{max-width:150px}
+@media (max-width:760px){.stage{grid-template-columns:1fr}.carbox{min-height:240px}}
 @media (max-width:640px){:host{padding:10px 10px 40px}.big{font-size:24px}.chart{height:200px}.legend{margin-left:0}}
 `;
 customElements.define("cortex-studio", CortexStudio);
