@@ -114,6 +114,9 @@ class Cortex:
     # ---- lifecycle ------------------------------------------------------
     def load_options(self) -> None:
         self.opts = {**DEFAULTS, **self.entry.data, **self.entry.options}
+        # Older installs saved the charger's raw sensor; the wall connector's total power is the real EV load.
+        if self.opts.get("studio_ev") == "sensor.tesla_wall_connector_ev_charger":
+            self.opts["studio_ev"] = "sensor.tesla_wall_connector_total_power"
         self.gate.quiet_start = parse_time(str(self.opts[CONF_QUIET_START]))
         self.gate.quiet_end = parse_time(str(self.opts[CONF_QUIET_END]))
         self.gate.dedupe_minutes = int(self.opts[CONF_DEDUPE])

@@ -123,7 +123,7 @@ DEFAULTS: dict[str, object] = {
     CONF_ST_PV: "sensor.sungrow_pv",
     CONF_ST_GRID: "sensor.neovolt_online_grid",
     CONF_ST_BATT: "sensor.neovolt_online_battery_power",
-    CONF_ST_EV: "sensor.tesla_wall_connector_ev_charger",
+    CONF_ST_EV: "sensor.tesla_wall_connector_total_power",
     CONF_ST_GRID_INVERT: False,
     CONF_ST_BATT_INVERT: False,
     CONF_ST_DAY_PV: "sensor.neovolt_online_pv_generated_today",

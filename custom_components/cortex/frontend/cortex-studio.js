@@ -33,7 +33,7 @@ const EV = {
   daily: "switch.byd_sealion_7_repeat_daily", start: "time.byd_sealion_7_start_time", end: "time.byd_sealion_7_end_time",
   go: "button.byd_sealion_7_start_charging", poll: "button.byd_sealion_7_force_poll",
   cap: "input_number.system_ev_battery_capacity", kw: "input_number.system_ev_charger_power",
-  wcStatus: "sensor.tesla_wall_connector_status", wcPower: "sensor.tesla_wall_connector_ev_charger",
+  wcStatus: "sensor.tesla_wall_connector_status", wcPower: "sensor.tesla_wall_connector_total_power",
   wcSession: "sensor.tesla_wall_connector_session_energy", wcV: "sensor.tesla_wall_connector_grid_voltage",
   wcA: ["sensor.tesla_wall_connector_phase_a_current", "sensor.tesla_wall_connector_phase_b_current", "sensor.tesla_wall_connector_phase_c_current"],
   wcT: [["Handle", "sensor.tesla_wall_connector_handle_temperature"], ["MCU", "sensor.tesla_wall_connector_mcu_temperature"], ["PCB", "sensor.tesla_wall_connector_pcb_temperature"]],
@@ -251,9 +251,11 @@ class CortexStudio extends HTMLElement {
     if (!s) return;
     const W = 900, H = 240, L = 34, R = 34, T = 10, B = 24, N = 288;
     const x = i => L + (i / (N - 1)) * (W - L - R);
-    const maxP = Math.max(1, ...s.pv.filter(v => v !== null), ...s.load.filter(v => v !== null), ...s.grid.map(v => Math.abs(v ?? 0))) * 1.1;
-    const yP = v => T + (1 - v / maxP) * (H - T - B);
-    const ySoc = v => T + (1 - v / 100) * (H - T - B);
+    const vals = [...s.pv, ...s.load, ...s.grid].filter(v => v !== null);
+    const hiP = Math.max(1, ...vals) * 1.1, loP = Math.min(0, ...vals) * 1.1, maxP = hiP;
+    const clampY = y => Math.max(T, Math.min(H - B, y));
+    const yP = v => clampY(T + (1 - (v - loP) / (hiP - loP || 1)) * (H - T - B));
+    const ySoc = v => clampY(T + (1 - v / 100) * (H - T - B));
     const line = (arr, y, color, w = 1.6, dash = "") => {
       let dstr = "", pen = false;
       arr.forEach((v, i) => { if (v === null) { pen = false; return; } dstr += (pen ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1); pen = true; });
@@ -266,7 +268,7 @@ class CortexStudio extends HTMLElement {
     };
     let grid = "";
     for (let k = 0; k <= 4; k++) {
-      const v = (maxP * k) / 4, y = yP(v);
+      const v = loP + ((hiP - loP) * k) / 4, y = yP(v);
       grid += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y + 3}" text-anchor="end" class="ax">${v.toFixed(1)}</text>`;
     }
     for (let k = 0; k <= 100; k += 50) grid += `<text x="${W - R + 4}" y="${ySoc(k) + 3}" class="ax">${k}%</text>`;
@@ -277,7 +279,7 @@ class CortexStudio extends HTMLElement {
       hrs += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" class="ax">${t.toLocaleTimeString([], { hour: "numeric" })}</text>`;
     }
     const nowx = x(N - 1);
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="24 hour energy chart">
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="24 hour energy chart" style="overflow:hidden">
       ${grid}${hrs}<line x1="${L}" x2="${W - R}" y1="${yP(0)}" y2="${yP(0)}" stroke="currentColor" opacity=".3"/>
       ${area(s.pv)}${line(s.pv, yP, C.solar, 1.4)}${line(s.load, yP, C.home, 2)}${line(s.grid, yP, C.grid, 1.4, "4 3")}${line(s.soc, ySoc, C.batt, 2)}
       <line x1="${nowx}" x2="${nowx}" y1="${T}" y2="${H - B}" stroke="currentColor" opacity=".3"/></svg>`;
@@ -821,7 +823,7 @@ nav button.on{background:var(--primary-color);color:var(--text-primary-color,#ff
 .gauges{display:flex;gap:16px;justify-content:space-around;flex-wrap:wrap}
 .gauge{display:flex;flex-direction:column;align-items:center;gap:2px;width:130px} .gauge svg{width:110px}
 .gv{font-size:24px;font-weight:600;fill:currentColor}
-.chart{width:100%;height:240px} .chart svg{width:100%;height:100%;overflow:visible;color:var(--primary-text-color)}
+.chart{width:100%;height:240px} .chart svg{width:100%;height:100%;overflow:hidden;color:var(--primary-text-color)}
 .ax{font-size:10px;fill:currentColor;opacity:.55}
 .legend{font-weight:400;font-size:12px;opacity:.8;margin-left:auto}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
