@@ -984,17 +984,26 @@ function towerSvg(k) {
 const SC = { img: "/cortex_static/home-scene.webp",
   paths: { solar: "M618 180c23 6 35 11 40 32l0 188", grid: "M69 727l640-120c72-14 78-20 38-33c-59-23-89-23-86-66l0-50",
     battery: "M642 432l-42 6", home: "M673 426l86-14", vehicle: "M652 458l0 55c0 15-15 14-81 26c-59 11-75 12-101 2l-120-60" },
-  col: { solar: "#ffd54f", grid: "#64b5f6", battery: "#4dd0a0", home: "#ff9d4d", vehicle: "#ef5350" } };
+  col: { solar: "#ffd54f", grid: "#64b5f6", battery: "#4dd0a0", home: "#ff9d4d", vehicle: "#ef5350" },
+  nodes: { solar: [620, 182], battery: [600, 438], home: [759, 412], vehicle: [350, 481] } };
 function sceneHTML() {
-  const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sf sf-${k}" d="${d}" style="--c:${SC.col[k]}"/>`).join("");
+  const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sft" d="${d}"/>`
+    + `<path class="sf sf-${k}" d="${d}" style="--c:${SC.col[k]}"/><path class="sf sfc sf-${k}" d="${d}"/>`).join("");
+  const nodes = Object.entries(SC.nodes).map(([k, [x, y]]) => `<g class="sn sn-${k}" transform="translate(${x} ${y})"><circle class="snr" r="14" style="stroke:${SC.col[k]}"/><circle r="6" style="fill:${SC.col[k]}"/></g>`).join("");
   const tower = towerSvg("sc").replace('<svg viewBox="0 0 190 240" class="battsvg tower">', '<svg class="stower" x="523" y="381" width="96" height="121" viewBox="0 0 190 240" overflow="visible" style="color:#cfd8dc">');
+  const poly = "378,38 668,130 506,268 238,160";
   return `<img src="${SC.img}" alt="Home energy"><svg class="xov" viewBox="0 0 1024 730" preserveAspectRatio="xMidYMax meet">
     <defs><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="12"/></filter>
-      <filter id="sfg" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-    <polygon class="spv" points="378,38 668,130 506,268 238,160"/>
+      <filter id="sfg" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <clipPath id="spc"><polygon points="${poly}"/></clipPath>
+      <linearGradient id="ssg" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+    <rect class="swin" x="758" y="225" width="135" height="243" rx="8" filter="url(#sbl)"/>
+    <polygon class="spv" points="${poly}"/>
+    <g clip-path="url(#spc)"><rect class="ssheen" x="150" y="0" width="120" height="330" fill="url(#ssg)" transform="skewX(-28)"/></g>
     <ellipse class="scar" cx="285" cy="470" rx="95" ry="66" filter="url(#sbl)"/>
     <rect class="sbglow" x="520" y="378" width="104" height="128" rx="16" filter="url(#sbl)"/>
-    ${tower}<g filter="url(#sfg)">${paths}</g><g class="sbadges"></g></svg>`;
+    ${tower}<circle class="shub" cx="658" cy="436" r="16"/>
+    ${paths.replace(/<path class="sf /g, '<path filter="url(#sfg)" class="sf ')}${nodes}<g class="sbadges"></g></svg>`;
 }
 function towerLevel(el, p, col) {
   const h = 206 * p / 100, y = 220 - h;
@@ -1012,19 +1021,30 @@ function sceneSet(root, o) {
   root.classList.toggle("bchg", f.batt > 0.05); root.classList.toggle("bdis", f.batt < -0.05);
   root.classList.toggle("cplug", !!(o.plugged || o.charging)); root.classList.toggle("cchg", !!o.charging);
   // seconds per 96px of travel: fast at high power, slow at low; width grows with power
-  const flow = (k, kw, rev) => set(".sf-" + k, e => {
+  const flow = (k, kw, rev) => {
     const a = Math.abs(kw), on = a > 0.05;
-    e.style.opacity = on ? 1 : 0; e.style.setProperty("--speed", Math.max(0.35, Math.min(3, 4 / (1 + a))).toFixed(2));
-    e.style.strokeWidth = (4 + Math.min(a, 8) * 0.7).toFixed(1); e.classList.toggle("rev", !!rev);
-  });
+    set(".sf-" + k, e => { e.style.opacity = on ? 1 : 0; e.style.setProperty("--speed", Math.max(0.35, Math.min(3, 4 / (1 + a))).toFixed(2));
+      e.style.strokeWidth = e.classList.contains("sfc") ? 2 : (5 + Math.min(a, 8) * 0.7).toFixed(1); e.classList.toggle("rev", !!rev); });
+    set(".sn-" + k, e => { e.style.opacity = on ? 1 : 0.25; });
+  };
   flow("solar", f.pv, false); flow("battery", f.batt, f.batt < 0); flow("vehicle", f.ev, false); flow("home", f.home, false); flow("grid", f.grid, f.grid < 0);
-  const badge = (x, y, t, col) => { const w = t.length * 12 + 24; return `<g transform="translate(${x - w / 2} ${y - 18})"><rect width="${w}" height="36" rx="18" fill="#fff" stroke="${col}" stroke-width="3"/><text x="${w / 2}" y="26" text-anchor="middle" fill="#222" font-size="21" font-weight="700">${esc(t)}</text></g>`; };
+  root.classList.toggle("bpv", f.pv > 0.05); root.classList.toggle("bany", f.pv + Math.abs(f.batt) + f.ev + f.home + Math.abs(f.grid) > 0.1);
+  set(".swin", e => { e.style.opacity = 0.12 + Math.min(f.home / 4, 1) * 0.4; });
+  // glass cards with a leader line to the thing they describe
+  const card = (x, y, label, val, sub, col, to) => {
+    const w = Math.max(label.length * 9, val.length * 15, (sub || "").length * 8) + 40, h = sub ? 76 : 58, l = x - w / 2, t = y - h / 2;
+    return `<line class="sld" x1="${x}" y1="${y + (to[1] > y ? h / 2 : -h / 2)}" x2="${to[0]}" y2="${to[1]}" stroke="${col}"/>`
+      + `<g transform="translate(${l} ${t})"><rect width="${w}" height="${h}" rx="14" class="scd"/><rect width="5" height="${h - 20}" x="0" y="10" rx="2.5" fill="${col}"/>`
+      + `<text x="20" y="23" class="scl">${esc(label)}</text><text x="20" y="${sub ? 49 : 46}" class="scv">${esc(val)}</text>${sub ? `<text x="20" y="66" class="scs">${esc(sub)}</text>` : ""}</g>`;
+  };
   const pc = v => (v === null || v === undefined ? "–" : Math.round(v) + "%");
-  set(".sbadges", e => { e.innerHTML = badge(180, 112, "☀ " + fx(f.pv) + " kW", C.solar)
-    + badge(571, 356, pc(bp) + (f.batt > 0.05 ? " ▼" : f.batt < -0.05 ? " ▲" : ""), bcol)
-    + badge(285, 330, pc(o.esoc) + (o.charging ? " ⚡" : ""), ecol)
-    + badge(845, 195, "Home " + fx(f.home) + " kW", C.home)
-    + badge(300, 700, Math.abs(f.grid) < 0.05 ? "Grid idle" : (f.grid > 0 ? "Import " : "Export ") + fx(Math.abs(f.grid)) + " kW", C.grid); });
+  const arrow = f.batt > 0.05 ? " ▼" : f.batt < -0.05 ? " ▲" : "";
+  set(".sbadges", e => { e.innerHTML =
+      card(150, 84, "SOLAR", fx(f.pv) + " kW", f.pv > 0.05 ? "generating" : "idle", C.solar, [335, 110])
+    + card(895, 120, "HOME LOAD", fx(f.home) + " kW", "", C.home, [850, 228])
+    + card(571, 330, "HOME ESS", pc(bp) + arrow, f.batt > 0.05 ? "charging " + fx(f.batt) + " kW" : f.batt < -0.05 ? "discharging " + fx(-f.batt) + " kW" : "idle", bcol, [571, 378])
+    + card(255, 316, "BYD SEALION 7", pc(o.esoc) + (o.charging ? " ⚡" : ""), o.charging ? "charging " + fx(f.ev) + " kW" : o.plugged ? "plugged in" : "", ecol, [285, 410])
+    + card(220, 640, "GRID", fx(Math.abs(f.grid)) + " kW", Math.abs(f.grid) < 0.05 ? "idle" : f.grid > 0 ? "importing" : "exporting", C.grid, [225, 697]); });
 }
 function battHTML(key, label) {
   return `<div class="batt ${key === "ev" ? "carw" : "towerw"}" data-b="${key}">
@@ -1237,9 +1257,16 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .estore{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:center}.epanels{display:grid;gap:14px}
 .esub{background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);border-radius:14px;padding:14px}
 @media (max-width:900px){.estore{grid-template-columns:1fr}}
-.spv{fill:#ffb300;opacity:0;transition:opacity 1s;mix-blend-mode:screen}.sbglow,.scar{opacity:0}
+.spv{fill:#ffb300;opacity:0;transition:opacity 1s;mix-blend-mode:screen}.sbglow,.scar{opacity:0}.swin{fill:#ffd180;opacity:.15;transition:opacity 1s}
+.ssheen{opacity:0}.bpv .ssheen{opacity:1;animation:ssw 3.2s ease-in-out infinite}@keyframes ssw{from{transform:skewX(-28deg) translateX(0)}to{transform:skewX(-28deg) translateX(620px)}}
+.sft{fill:none;stroke:#fff;stroke-opacity:.1;stroke-width:6;stroke-linecap:round}
 .sf{fill:none;stroke:var(--c);stroke-linecap:round;stroke-dasharray:10 22;opacity:0;animation:sdash calc(var(--speed,2) * 1s) linear infinite;transition:opacity .5s}.sf.rev{animation-direction:reverse}
+.sfc{stroke:#fff;stroke-opacity:.75;stroke-dasharray:3 29;stroke-width:2}
 @keyframes sdash{to{stroke-dashoffset:-96}}
+.sn{transition:opacity .6s}.sn circle:first-child{fill:none;stroke-width:2;opacity:.6;animation:snp 2s ease-out infinite;transform-box:fill-box;transform-origin:center}@keyframes snp{from{transform:scale(.5);opacity:.9}to{transform:scale(1.5);opacity:0}}
+.shub{fill:none;stroke:#fff;stroke-opacity:.0;stroke-width:3}.bany .shub{stroke-opacity:.45;animation:snp 2.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
+.scd{fill:rgba(14,18,26,.84);stroke:rgba(255,255,255,.14)}.scl{fill:#9aa7b4;font-size:13px;font-weight:600;letter-spacing:.08em}.scv{fill:#fff;font-size:26px;font-weight:700}.scs{fill:#b8c2cc;font-size:14px}
+.sld{stroke-width:2;stroke-dasharray:3 5;opacity:.7}
 .bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.cplug .scar{opacity:.32}.cchg .scar{animation:xgl 1.6s ease-in-out infinite}
 @keyframes xgl{0%,100%{opacity:.15}50%{opacity:.7}}
 .carbox img{max-width:88%;max-height:230px;object-fit:contain;filter:drop-shadow(0 18px 18px #0006);position:relative;z-index:1}
