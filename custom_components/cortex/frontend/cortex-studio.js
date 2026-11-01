@@ -84,6 +84,7 @@ class CortexStudio extends HTMLElement {
     if (this._tab === "now" && Date.now() - this._seriesAt > 300000) this._loadSeries();
     if (this._tab === "history" && !this._daily) this._loadDaily();
     if (this._tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
+    if (this._tab === "plan" && Date.now() - (this._earnAt || 0) > 120000) this._loadEarn();
     if ((this._tab === "battery" || this._tab === "analytics") && Date.now() - ((this._moreAt || {})[this._tab] || 0) > 300000) this._loadMore(this._tab);
   }
 
@@ -180,6 +181,7 @@ class CortexStudio extends HTMLElement {
     this._render();
     if (tab === "now" && !this._series) this._loadSeries();
     if (tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
+    if (tab === "plan" && Date.now() - (this._earnAt || 0) > 120000) this._loadEarn();
     if ((tab === "battery" || tab === "analytics") && Date.now() - ((this._moreAt || {})[tab] || 0) > 300000) this._loadMore(tab);
     if (tab === "history" && !this._daily) this._loadDaily();
   }
@@ -190,7 +192,7 @@ class CortexStudio extends HTMLElement {
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
     view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => this._paintMore("battery"), analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); }, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => this._paintMore("battery"), analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -601,6 +603,45 @@ class CortexStudio extends HTMLElement {
         ${w ? `<div class="row"><span>Weather</span><b>${esc(w.state.replace(/-/g, " "))} ${w.attributes.temperature ?? ""}°</b></div>` : ""}</div>`;
   }
 
+  // ---- evening export plan: earnings vs daily supply charge -------------
+  async _loadEarn() {
+    const id = (this._data.studio || {}).day_export; if (!id) return;
+    this._earnAt = Date.now();
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const res = await this._hass.callWS({ type: "history/history_during_period", start_time: start.toISOString(), end_time: new Date().toISOString(),
+      entity_ids: [id], minimal_response: true, no_attributes: true, significant_changes_only: false }).catch(() => ({}));
+    const sch = this._data.schedule || [], rate = h => (sch.find(r => r.hour === h) || { feed_in: 0 }).feed_in;
+    const buckets = {}; let prev = null, kwh = 0, earned = 0;
+    (res[id] || []).forEach(r => {
+      const v = parseFloat(r.s); if (Number.isNaN(v)) return;
+      const t = new Date((r.lu ?? r.lc) * 1000);
+      if (prev !== null && v > prev && v - prev < 5) { const d = v - prev, c = rate(t.getHours()); buckets[c] = (buckets[c] || 0) + d; kwh += d; earned += d * c / 100; }
+      prev = v;
+    });
+    this._earn = { buckets, kwh, earned };
+    if (this._tab === "plan") this._paintEarn();
+  }
+  _paintEarn() {
+    const el = this._root.querySelector("#earn"), d = this._data; if (!el || !d) return;
+    const e = d.energy, m = this._earn || { buckets: {}, kwh: 0, earned: 0 };
+    const daily = e.daily_charge ?? 0, sch = d.schedule || [], top = Math.max(...sch.map(r => r.feed_in), 0) || e.feed_in_rate || 1;
+    const left = Math.max(daily - m.earned, 0), covered = left <= 0.004, pct = daily ? Math.min(m.earned / daily, 1) * 100 : 0;
+    const needKwh = left / (top / 100), expKw = Math.max(-this._flows().grid, 0), nowRate = e.feed_in_rate ?? 0;
+    const rows = Object.keys(m.buckets).map(Number).sort((a, b) => b - a).map(c =>
+      `<div class="row"><span class="muted">${fx(c, 0)}c × ${fx(m.buckets[c], 1)} kWh</span><b>$${fx(m.buckets[c] * c / 100, 2)}</b></div>`).join("");
+    const usable = e.battery_usable ?? 0, can = usable >= needKwh;
+    el.innerHTML = `
+      <div class="hero-top"><div class="big">$${fx(m.earned, 2)}<small>of $${fx(daily, 2)} supply charge</small></div>
+        <span class="pill" style="background:${covered ? C.shoulder : C.off_peak};align-self:center">${covered ? "covered ✓" : "$" + fx(left, 2) + " to go"}</span></div>
+      <div class="hbar" style="grid-template-columns:1fr;margin:10px 0"><div style="height:14px"><i style="width:${pct}%;background:${covered ? C.shoulder : C.off_peak}"></i></div></div>
+      <div class="row"><span>${covered ? "Surplus earned" : "Left to cover"}</span><b>${covered ? "$" + fx(m.earned - daily, 2) : "$" + fx(left, 2) + " ≈ " + fx(needKwh, 2) + " kWh at " + fx(top, 0) + "c"}</b></div>
+      <div class="row"><span>Feed-in now</span><b>${fx(nowRate, 0)}c</b></div>
+      <div class="row"><span>Exporting now</span><b>${expKw > 0.05 ? fx(expKw) + " kW → $" + fx(expKw * nowRate / 100, 2) + "/h" : "not exporting"}</b></div>
+      <div class="row"><span>Exported today</span><b>${fx(m.kwh, 1)} kWh</b></div>${rows}
+      ${covered ? "" : `<div class="row"><span>Battery usable</span><b class="${can ? "ok" : "bad"}">${fx(usable, 1)} kWh ${can ? "· enough" : "· short by " + fx(needKwh - usable, 1)}</b></div>`}
+      <div class="muted">Earnings = each kWh exported × the feed-in rate at that hour.</div>`;
+  }
+
   // ---- PLAN -----------------------------------------------------------
   _viewPlan() {
     const d = this._data, e = d.energy, sch = d.schedule;
@@ -629,12 +670,7 @@ class CortexStudio extends HTMLElement {
         <div class="row"><span>Low-solar line</span><b>${fx(e.low_solar, 0)} kWh</b></div>
         <div class="row"><span>Today is a</span><b style="color:${solarDay}">${esc(e.solar_day)} day</b></div>
         <div class="row"><span>Shortfall vs need</span><b>${e.pv_shortfall === null ? "–" : fx(e.pv_shortfall, 1) + " kWh"}</b></div></div>
-      <div class="card"><h2>Evening export plan</h2>
-        <div class="row"><span>Daily supply charge</span><b>$${fx(e.daily_charge, 2)}</b></div>
-        <div class="row"><span>Export to cover it</span><b>${fx(e.export_to_cover, 2)} kWh</b></div>
-        <div class="row"><span>Feed-in now</span><b>${fx(e.feed_in_rate, 0)}c</b></div>
-        <div class="row"><span>Battery usable</span><b>${fx(e.battery_usable, 1)} kWh</b></div>
-        <div class="row muted"><span>Auto top-up</span><span>${d.automation.topup ? "on" : "off"} · export ${d.automation.export ? "on" : "off"} · EV gate ${d.automation.ev_gate ? "on" : "off"}</span></div></div>
+      <div class="card"><h2>Evening export plan</h2><div id="earn"><div class="muted">Loading…</div></div></div>
       <div class="card wide"><h2>Autopilot <span class="pill" style="background:${ap.mode === "auto" ? C.shoulder : ap.mode === "shadow" ? C.off_peak : "#757575"}">${esc(ap.mode)}</span>
         <span class="seg"><button id="ap-topup">Plan top-up</button><button id="ap-export">Plan export</button></span></h2>
         ${(ap.decisions || []).length ? ap.decisions.map(x => `<div class="row"><span><b>${x.window === "topup" ? "Top-up" : "Export"}</b> ${x.do ? "✅" : "⏸"} ${esc(x.reason)}
