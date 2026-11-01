@@ -957,17 +957,23 @@ const SC = { img: "/cortex_static/home-scene.jpg",
 function sceneHTML() {
   const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sf sf-${k}" d="${d}"/>`).join("");
   return `<img src="${SC.img}" alt="Home energy"><svg class="xov" viewBox="170 100 930 540" preserveAspectRatio="xMidYMid meet">
-    <defs><clipPath id="sbc"><rect x="722" y="426" width="48" height="92" rx="8"/></clipPath><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter></defs>
+    <defs><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter></defs>
     <polygon class="spv" points="572,160 818,262 700,355 462,270"/>
     <ellipse class="scar" cx="478" cy="498" rx="64" ry="50" filter="url(#sbl)"/>
     <rect class="sbglow" x="716" y="420" width="60" height="104" rx="12" filter="url(#sbl)"/>
-    <g clip-path="url(#sbc)"><rect class="sbf" x="722" y="518" width="48" height="0"/></g>
+    ${towerSvg("sc").replace('<svg viewBox="0 0 190 240" class="battsvg tower">', '<svg class="stower" x="708" y="420" width="86" height="108" viewBox="0 0 190 240" overflow="visible" style="color:#444;--card-background-color:#f4f5fa">')}
     ${paths}<g class="sbadges"></g></svg>`;
+}
+function towerLevel(el, p, col) {
+  const h = 206 * p / 100, y = 220 - h;
+  el.querySelectorAll(".twv,.tfl").forEach(r => { r.style.fill = col; });
+  const tf = el.querySelector(".tfl"); tf.style.y = y + "px"; tf.style.height = h + "px";
+  el.querySelector(".twrap").style.transform = `translateY(${y + 2}px)`;
 }
 function sceneSet(root, o) {
   const f = o.f, set = (sel, fn) => root.querySelectorAll(sel).forEach(fn), bp = o.bsoc === null || o.bsoc === undefined ? null : Math.max(0, Math.min(o.bsoc, 100));
-  const bcol = levelColor(bp), ecol = levelColor(o.esoc ?? null), hh = 92 * (bp ?? 0) / 100;
-  set(".sbf", e => { e.setAttribute("y", 518 - hh); e.setAttribute("height", hh); e.style.fill = bcol; });
+  const bcol = levelColor(bp), ecol = levelColor(o.esoc ?? null);
+  set(".stower", e => { e.style.setProperty("--bc", bcol); e.classList.toggle("chg", f.batt > 0.05); e.classList.toggle("dis", f.batt < -0.05); towerLevel(e, bp ?? 0, bcol); });
   set(".sbglow", e => { e.style.fill = bcol; });
   set(".scar", e => { e.style.fill = o.charging ? C.shoulder : C.off_peak; });
   set(".spv", e => { e.style.opacity = Math.min(f.pv / 6, 1) * 0.55; });
@@ -1070,9 +1076,7 @@ function battSet(root, o) {
     root.querySelectorAll(".bfill").forEach(r => { r.style.width = w + "px"; }); root.querySelector(".fclip").style.width = w + "px";
     root.querySelector(".bmarks").innerHTML = marks.map(m => { const x = 18 + 406 * m.pct / 100; return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="${x}" x2="${x}" y1="8" y2="148" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="${x}" cy="8" r="4" fill="${m.color}"/></g>`; }).join("");
   } else {
-    const h = 206 * p / 100, y = 220 - h;
-    const tf = root.querySelector(".tfl"); tf.style.y = y + "px"; tf.style.height = h + "px";
-    root.querySelector(".twrap").style.transform = `translateY(${y + 2}px)`;
+    towerLevel(root, p, col); const y = 220 - 206 * p / 100;
     root.querySelector(".bmarks").innerHTML = marks.map(m => { const my = 220 - 206 * m.pct / 100; return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="26" x2="154" y1="${my}" y2="${my}" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="26" cy="${my}" r="4" fill="${m.color}"/></g>`; }).join("");
   }
 }
@@ -1215,7 +1219,7 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .estore{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:center}.epanels{display:grid;gap:14px}
 .esub{background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);border-radius:14px;padding:14px}
 @media (max-width:900px){.estore{grid-template-columns:1fr}}
-.spv{fill:#ffb300;mix-blend-mode:multiply;opacity:0;transition:opacity 1s}.sbf{mix-blend-mode:multiply;opacity:.85;transition:y 1s,height 1s}.sbglow,.scar{opacity:0}
+.spv{fill:#ffb300;mix-blend-mode:multiply;opacity:0;transition:opacity 1s}.sbglow,.scar{opacity:0}
 .sf{fill:none;stroke-width:7;stroke-linecap:round;stroke-dasharray:2 20;opacity:0;animation:xdash 1s linear infinite;transition:opacity .5s}.sf.rev{animation-direction:reverse}
 .bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.cplug .scar{opacity:.45}.cchg .scar{animation:xgl 1.6s ease-in-out infinite}
 .xray{position:relative;width:min(calc(100% - 36px),780px);margin:0 auto;border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fff,#e8ecef);z-index:1;box-shadow:0 10px 30px #0005;transition:box-shadow .6s}
