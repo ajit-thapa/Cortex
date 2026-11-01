@@ -507,7 +507,7 @@ class CortexStudio extends HTMLElement {
       const soc = this._num(s.soc) ?? this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc"), cap = this._num("input_number.system_battery_capacity") ?? 50;
       const floor = this._num("number.neovolt_online_minimum_soc");
       battSet(house, { pct: soc, charging: f.batt > 0.05, discharging: f.batt < -0.05,
-        sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (f.batt > 0.05 ? "⚡ charging " + fx(f.batt) + " kW" : f.batt < -0.05 ? "▼ discharging " + fx(-f.batt) + " kW" : "idle"),
+        sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (f.batt > 0.05 ? "▼ charging " + fx(f.batt) + " kW" : f.batt < -0.05 ? "▲ discharging " + fx(-f.batt) + " kW" : "idle"),
         marks: [{ pct: floor, color: C.peak, label: "Reserve" }] });
     }
     if (ev) {
@@ -1015,7 +1015,8 @@ function towerSvg(k) {
       <rect x="36" y="14" width="108" height="206" fill="url(#tg-${k})"/></g>
     <rect x="30" y="8" width="120" height="216" rx="14" fill="none" stroke="currentColor" stroke-width="3" opacity=".6"/>
     <rect x="48" y="22" width="40" height="7" rx="3" fill="currentColor" opacity=".28"/><circle class="tled" cx="126" cy="26" r="4"/>
-    <g class="tflow">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 ${200 - i * 0} l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
+    <g class="tflow tdn">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 191 l8 9 l8 -9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
+    <g class="tflow tup">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 200 l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
     <g class="bmarks"></g></svg>`;
 }
 function battHTML(key, label) {
@@ -1215,8 +1216,8 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .twrap{transition:transform 1s ease}
 .tled{fill:#66bb6a;animation:blink 2s ease-in-out infinite}@keyframes blink{50%{opacity:.25}}
 .tflow{opacity:0}.tch{stroke:var(--bc);opacity:0}
-.chg .tflow,.dis .tflow{opacity:1}
-.chg .tch{animation:up 1.6s linear infinite}.dis .tch{animation:down 1.6s linear infinite}
+.chg .tdn,.dis .tup{opacity:1}
+.chg .tdn .tch{animation:down 1.6s linear infinite}.dis .tup .tch{animation:up 1.6s linear infinite}
 @keyframes up{0%{transform:translateY(20px);opacity:0}30%{opacity:1}100%{transform:translateY(-150px);opacity:0}}
 @keyframes down{0%{transform:translateY(-150px);opacity:0}30%{opacity:1}100%{transform:translateY(20px);opacity:0}}
 .bstage{position:relative}
