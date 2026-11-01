@@ -62,6 +62,9 @@ class CortexStudio extends HTMLElement {
     } else if (this._data && this._tab === "now" && Date.now() - (this._lastPaint || 0) > 1500) {
       this._lastPaint = Date.now();
       this._paintLive();
+    } else if (this._data && this._tab === "battery" && Date.now() - (this._lastPaint || 0) > 1500) {
+      this._lastPaint = Date.now();
+      this._battWidgets();
     } else if (this._data && this._tab === "ev" && Date.now() - (this._lastPaint || 0) > 1500) {
       this._lastPaint = Date.now();
       this._paintEv();
@@ -192,7 +195,7 @@ class CortexStudio extends HTMLElement {
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
     view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => this._paintMore("battery"), analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => { this._battWidgets(); this._paintMore("battery"); }, analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -216,7 +219,7 @@ class CortexStudio extends HTMLElement {
         <div class="ticks"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
       </div>
       <div class="card flow"><h2>Power flow</h2><div id="flow"></div></div>
-      <div class="card"><h2>Storage</h2><div id="gauges" class="gauges"></div>
+      <div class="card"><h2>Storage</h2><div id="gauges" class="battstack"><div data-bhost="house"></div><div data-bhost="ev"></div></div>
         <div class="muted" style="margin-top:8px">${esc(e.storage_summary || "")}</div></div>
       <div class="card wide"><h2>Last 24 hours <span class="legend"><b style="color:${C.solar}">■</b> solar <b style="color:${C.home}">■</b> load <b style="color:${C.grid}">■</b> grid <b style="color:${C.batt}">■</b> battery %</span></h2>
         <div id="chart" class="chart"><div class="muted">Loading history…</div></div></div>
@@ -233,10 +236,7 @@ class CortexStudio extends HTMLElement {
     }
     const flow = root.querySelector("#flow");
     if (flow) flow.innerHTML = flowSvg(f);
-    const soc = this._num(s.soc), evsoc = this._num(s.ev_soc);
-    const g = root.querySelector("#gauges");
-    if (g) g.innerHTML = gauge(soc, "Battery", C.batt, f.batt > 0.05 ? "charging " + fx(f.batt) + " kW" : f.batt < -0.05 ? "discharging " + fx(-f.batt) + " kW" : "idle")
-      + gauge(evsoc, "EV", C.ev, f.ev > 0.05 ? "charging " + fx(f.ev) + " kW" : e.ev_plugged ? "plugged in" : "unplugged");
+    this._battWidgets();
     const st = root.querySelector("#stats");
     if (st) st.innerHTML = [
       ["Solar now", fx(f.pv) + " kW", C.solar], ["Home load", fx(f.load) + " kW", C.home],
@@ -334,7 +334,7 @@ class CortexStudio extends HTMLElement {
             <div class="cartop"><span class="carname">BYD Sealion 7</span><span id="ev-state" class="pill"></span></div>
             <div class="carbar"><div class="barbg"><i id="ev-fill"></i><u id="ev-mark"></u></div>
               <div class="barlbl"><b id="ev-big"></b><span id="ev-sub" class="muted"></span></div></div></div>
-          <div class="evside"><div id="ev-ring"></div><div class="stats" id="ev-stats"></div></div></div></div>
+          <div class="evside"><div data-bhost="ev"></div><div class="stats" id="ev-stats"></div></div></div></div>
       <div class="card"><h2>Charge planner <span class="muted">drag to set target</span></h2>
         <div class="big" id="ev-target-big"></div>
         <input type="range" id="ev-target" min="20" max="100" step="1" value="${this._evTarget ?? 80}" class="slider">
@@ -389,7 +389,7 @@ class CortexStudio extends HTMLElement {
   }
 
   _paintEv() {
-    const q = s => this._root.querySelector(s); if (!q("#ev-ring")) return;
+    const q = s => this._root.querySelector(s); if (!q("#ev-state")) return;
     const st = id => this._hass.states[id];
     const on = id => st(id) && st(id).state === "on";
     const home = st(EV.loc) && st(EV.loc).state === "home";
@@ -399,18 +399,7 @@ class CortexStudio extends HTMLElement {
     const pill = q("#ev-state");
     pill.textContent = charging ? "Charging" : plugged ? "Plugged in" : home ? "Home" : "Away";
     pill.style.background = charging ? C.shoulder : plugged ? C.off_peak : "#757575";
-    // ring with target marker
-    const r = 70, c = 2 * Math.PI * r, p = Math.max(0, Math.min(pl.soc, 100)) / 100;
-    const ang = (pl.target / 100) * 2 * Math.PI - Math.PI / 2;
-    const mx = 90 + (r + 0) * Math.cos(ang), my = 90 + r * Math.sin(ang);
-    q("#ev-ring").innerHTML = `<svg viewBox="0 0 180 180" class="evring ${charging ? "pulse" : ""}">
-      <circle cx="90" cy="90" r="${r}" fill="none" stroke="currentColor" opacity=".12" stroke-width="14"/>
-      <circle cx="90" cy="90" r="${r}" fill="none" stroke="${charging ? C.shoulder : C.ev}" stroke-width="14" stroke-linecap="round"
-        stroke-dasharray="${c * p} ${c}" transform="rotate(-90 90 90)" style="transition:stroke-dasharray .8s"/>
-      <circle cx="${mx}" cy="${my}" r="8" fill="${C.home}" stroke="var(--card-background-color,#fff)" stroke-width="3"/>
-      <text x="90" y="88" text-anchor="middle" class="evpct">${Math.round(pl.soc)}%</text>
-      <text x="90" y="108" text-anchor="middle" class="ax" style="font-size:12px">${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh</text>
-      <text x="90" y="126" text-anchor="middle" class="ax" style="font-size:11px">target ${pl.target}%</text></svg>`;
+    this._battWidgets();
     const fill = q("#ev-fill"); if (fill) {
       fill.style.width = Math.max(0, Math.min(pl.soc, 100)) + "%"; fill.style.background = charging ? C.shoulder : C.ev;
       q("#ev-mark").style.left = pl.target + "%";
@@ -465,6 +454,27 @@ class CortexStudio extends HTMLElement {
       <text x="${W - R + 4}" y="${yp(maxP) + 10}" class="ax">${maxP.toFixed(0)}</text>`;
   }
 
+  _battWidgets() {
+    const r = this._root, f = this._flows(), s = this._data.studio || {};
+    r.querySelectorAll("[data-bhost]").forEach(h => { if (!h.querySelector(".batt")) h.innerHTML = battHTML(h.dataset.bhost, h.dataset.bhost === "house" ? "Home battery" : "BYD Sealion 7"); });
+    const house = r.querySelector('[data-b="house"]'), ev = r.querySelector('[data-b="ev"]');
+    if (house) {
+      const soc = this._num(s.soc) ?? this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc"), cap = this._num("input_number.system_battery_capacity") ?? 50;
+      const floor = this._num("number.neovolt_online_minimum_soc");
+      battSet(house, { pct: soc, charging: f.batt > 0.05, discharging: f.batt < -0.05,
+        sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (f.batt > 0.05 ? "⚡ charging " + fx(f.batt) + " kW" : f.batt < -0.05 ? "▼ discharging " + fx(-f.batt) + " kW" : "idle"),
+        marks: [{ pct: floor, color: C.peak, label: "Reserve" }] });
+    }
+    if (ev) {
+      const soc = this._num(EV.soc) ?? this._num(s.ev_soc), cap = this._num(EV.cap) ?? 82.5;
+      const chg = this._hass.states[EV.charging] && this._hass.states[EV.charging].state === "on";
+      const kw = f.ev;
+      battSet(ev, { pct: soc, charging: chg || kw > 0.05,
+        sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (chg || kw > 0.05 ? "⚡ charging " + fx(kw) + " kW" : (this._data.energy.ev_plugged ? "plugged in" : "unplugged")),
+        marks: [{ pct: this._tab === "ev" && this._evTarget !== undefined ? this._evTarget : this._num("input_number.byd_target_soc"), color: C.home, label: "Target" }] });
+    }
+  }
+
   // ---- generic data loaders -------------------------------------------
   async _hist(ids, hours, n = 144, scale = {}) {
     const end = new Date(), start = new Date(end.getTime() - hours * 3600000);
@@ -517,7 +527,7 @@ class CortexStudio extends HTMLElement {
     const soc = this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc");
     const cap = this._num("input_number.system_battery_capacity") ?? 50;
     return `<section class="grid">
-      <div class="card"><h2>Home ESS</h2><div class="gauges">${gauge(soc, "Level", C.batt, fx(soc === null ? null : soc * cap / 100, 1) + " of " + fx(cap, 0) + " kWh")}</div>
+      <div class="card"><h2>Home ESS</h2><div data-bhost="house"></div>
         <div class="stats" style="margin-top:12px">${E.life.map(([l, id]) => this._tile(l, id, C.batt)).join("")}</div></div>
       <div class="card"><h2>Monitor</h2><div class="stats">${E.bt.map(([l, id]) => this._tile(l, id, C.batt)).join("")}</div></div>
       <div class="card"><h2>System health</h2><div class="stats">${E.health.map(([l, id]) => {
@@ -798,6 +808,39 @@ function barChart(days, series, o = {}) {
   return `<div class="chart" style="height:${H}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${bars}</svg></div>${legend(series)}`;
 }
 
+// ---- battery symbol -------------------------------------------------------
+const levelColor = p => (p === null ? "#757575" : p < 20 ? C.peak : p < 40 ? C.off_peak : C.shoulder);
+function battHTML(key, label) {
+  const segs = Array.from({ length: 9 }, (_, i) => `<line x1="${10 + 19 * (i + 1)}" x2="${10 + 19 * (i + 1)}" y1="16" y2="84" stroke="var(--card-background-color,#fff)" stroke-width="2" opacity=".6"/>`).join("");
+  return `<div class="batt" data-b="${key}"><svg viewBox="0 0 224 100" class="battsvg">
+    <defs><clipPath id="bc-${key}"><rect x="10" y="16" width="190" height="68" rx="10"/></clipPath>
+      <clipPath id="fc-${key}"><rect class="fclip" x="10" y="16" width="0" height="68"/></clipPath>
+      <linearGradient id="bg-${key}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></linearGradient>
+      <linearGradient id="sh-${key}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+    <rect x="4" y="10" width="202" height="80" rx="16" fill="none" stroke="currentColor" stroke-width="3" opacity=".55"/>
+    <rect x="208" y="36" width="10" height="28" rx="4" fill="currentColor" opacity=".55"/>
+    <g clip-path="url(#bc-${key})"><rect x="10" y="16" width="190" height="68" fill="currentColor" opacity=".07"/>
+      <rect class="bfill" x="10" y="16" width="0" height="68"/><rect class="bfill" style="fill:url(#bg-${key})" x="10" y="16" width="0" height="68"/>
+      <g clip-path="url(#fc-${key})"><rect class="bsheen" x="-50" y="16" width="60" height="68" fill="url(#sh-${key})"/></g>${segs}</g>
+    <g class="bmarks"></g>
+    <text class="bpct" x="105" y="62" text-anchor="middle"></text></svg>
+    <div class="battmeta"><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
+}
+function battSet(root, o) {
+  if (!root) return;
+  const w = o.pct === null || o.pct === undefined ? 0 : 190 * Math.max(0, Math.min(o.pct, 100)) / 100, col = levelColor(o.pct ?? null);
+  root.querySelectorAll(".bfill").forEach((r, i) => { r.style.width = w + "px"; if (!i) r.style.fill = col; });
+  root.querySelector(".fclip").style.width = w + "px";
+  const svg = root.querySelector(".battsvg");
+  svg.classList.toggle("chg", !!o.charging); svg.classList.toggle("dis", !!o.discharging); svg.style.setProperty("--bc", col);
+  root.querySelector(".bpct").textContent = o.pct === null || o.pct === undefined ? "–" : Math.round(o.pct) + "%";
+  root.querySelector(".bsub").textContent = o.sub || "";
+  root.querySelector(".bmarks").innerHTML = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined).map(m => {
+    const x = 10 + 190 * m.pct / 100;
+    return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="${x}" x2="${x}" y1="8" y2="92" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="${x}" cy="8" r="4" fill="${m.color}"/></g>`;
+  }).join("");
+}
+
 // ---- SVG pieces ---------------------------------------------------------
 function gauge(pct, label, color, sub) {
   const r = 46, c = 2 * Math.PI * r, p = pct === null ? 0 : Math.max(0, Math.min(pct, 100)) / 100;
@@ -902,6 +945,21 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .lg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;opacity:.8;margin-top:4px}
 .stat b small{font-size:12px;font-weight:400;opacity:.6;margin-left:3px}
 .num{width:90px;text-align:right;background:var(--card-background-color);color:inherit;border:1px solid var(--divider-color);border-radius:8px;padding:4px 6px}
+
+.battstack{display:flex;flex-direction:column;gap:18px}
+.batt{display:flex;flex-direction:column;gap:6px;color:var(--primary-text-color)}
+.battsvg{width:100%;max-width:340px;display:block;margin:0 auto;overflow:visible}
+.bfill{transition:width 1s ease,fill .6s}
+.fclip{transition:width 1s ease}
+.bpct{font-size:30px;font-weight:700;fill:#fff;stroke:#0008;stroke-width:3px;paint-order:stroke}
+.bsheen{opacity:0}
+.chg .bsheen,.dis .bsheen{opacity:1;animation:sheen 1.8s linear infinite}
+.dis .bsheen{animation-direction:reverse;animation-duration:2.8s}
+.chg{filter:drop-shadow(0 0 7px var(--bc))}
+@keyframes sheen{from{transform:translateX(0)}to{transform:translateX(250px)}}
+.battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px}
+.battmeta b{font-size:15px}
+.evside .batt{margin-bottom:4px}
 @media (max-width:640px){:host{padding:10px 10px 40px}.big{font-size:24px}.chart{height:200px}.legend{margin-left:0}}
 `;
 customElements.define("cortex-studio", CortexStudio);
