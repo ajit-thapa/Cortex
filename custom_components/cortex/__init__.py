@@ -20,7 +20,7 @@ PLATFORMS = ["sensor"]
 PANEL_URL = "cortex"
 STUDIO_URL = "cortex-studio"
 FRONTEND_PATH = f"/{DOMAIN}_static"
-FRONTEND_VERSION = "0.8.1"  # cache-buster for the panel scripts
+FRONTEND_VERSION = "0.8.2"  # cache-buster for the panel scripts
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -30,7 +30,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+def _migrate_battery_sign(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """The Neovolt battery sensor reports charging as negative; flip it once."""
+    if entry.data.get("studio_sign_fixed"):
+        return
+    options = dict(entry.options)
+    if options.get("studio_battery", "sensor.neovolt_online_battery_power") == "sensor.neovolt_online_battery_power":
+        options["studio_battery_invert"] = True
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "studio_sign_fixed": True}, options=options)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    _migrate_battery_sign(hass, entry)
     brain = Cortex(hass, entry)
     await brain.async_start()
     hass.data[DOMAIN][entry.entry_id] = brain
