@@ -205,7 +205,9 @@ class EnergyBrain:
             return False
         return True
 
-    async def start_topup(self, force: bool = False) -> str:
+    async def start_topup(
+        self, force: bool = False, kw: float | None = None, target: float | None = None
+    ) -> str:
         """Charge the battery from the grid during the cheap shoulder window."""
         snap = self.snapshot()
         short = snap["pv_shortfall"]
@@ -213,9 +215,9 @@ class EnergyBrain:
             return "skipped: forecast solar covers the battery and EV"
         o = self.brain.opts
         plan_hours = 4
-        await self._set("number", "set_value", CONF_POWER, value=float(o[CONF_TOPUP_KW]))
+        await self._set("number", "set_value", CONF_POWER, value=float(kw or o[CONF_TOPUP_KW]))
         await self._set("number", "set_value", CONF_DURATION, value=plan_hours * 60)
-        await self._set("number", "set_value", CONF_CHARGE_TARGET, value=100)
+        await self._set("number", "set_value", CONF_CHARGE_TARGET, value=float(target or 100))
         ok = await self._set(
             "select", "select_option", CONF_MODE, option="Force Charge"
         )
@@ -230,17 +232,19 @@ class EnergyBrain:
             self.brain.log("energy", "battery action started")
         return "started" if ok else "failed"
 
-    async def start_export(self, force: bool = False) -> str:
+    async def start_export(
+        self, force: bool = False, kw: float | None = None, floor: float | None = None
+    ) -> str:
         """Discharge to the grid during the evening feed-in window."""
         o = self.brain.opts
         soc = self._num(CONF_SOC)
         if not force and (soc is None or soc <= float(o[CONF_EXPORT_MIN_SOC])):
             return "skipped: battery too low to export"
         plan = self.plan()
-        await self._set("number", "set_value", CONF_POWER, value=float(o[CONF_EXPORT_KW]))
+        await self._set("number", "set_value", CONF_POWER, value=float(kw or o[CONF_EXPORT_KW]))
         await self._set("number", "set_value", CONF_DURATION, value=240)
         await self._set(
-            "number", "set_value", CONF_DISCHARGE_TARGET, value=float(o[CONF_EXPORT_FLOOR])
+            "number", "set_value", CONF_DISCHARGE_TARGET, value=float(floor or o[CONF_EXPORT_FLOOR])
         )
         ok = await self._set(
             "select", "select_option", CONF_MODE, option="Force Discharge"

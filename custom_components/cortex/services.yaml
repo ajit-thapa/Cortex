@@ -136,3 +136,10 @@ restore:
   fields:
     file: {selector: {text: {}}}
     with_options: {default: false, selector: {boolean: {}}}
+autopilot_decide:
+  fields:
+    window:
+      required: true
+      selector: {select: {options: [topup, export]}}
+    execute:
+      selector: {boolean: {}}

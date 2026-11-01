@@ -150,7 +150,7 @@ class CortexStudio extends HTMLElement {
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
     view.innerHTML = ({ now: () => this._viewNow(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, plan: () => {}, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, plan: () => this._wirePlan(), history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -260,6 +260,7 @@ class CortexStudio extends HTMLElement {
     let grid = "";
     for (let k = 0; k <= 4; k++) { const v = (maxR * k) / 4; grid += `<line x1="${L}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${v.toFixed(0)}c</text>`; }
     const solarDay = e.solar_day === "low" ? C.peak : C.shoulder;
+    const ap = d.autopilot || { mode: "off", decisions: [] };
     const pvT = e.pv_today, pvM = e.pv_tomorrow, mx = Math.max(pvT || 0, pvM || 0, e.low_solar || 30, 1);
     const bar = (v, label) => `<div class="hbar"><span>${label}</span><div><i style="width:${v === null ? 0 : Math.min(v / mx, 1) * 100}%;background:${C.solar}"></i></div><b>${v === null ? "–" : fx(v, 0) + " kWh"}</b></div>`;
     return `<section class="grid">
@@ -276,12 +277,26 @@ class CortexStudio extends HTMLElement {
         <div class="row"><span>Feed-in now</span><b>${fx(e.feed_in_rate, 0)}c</b></div>
         <div class="row"><span>Battery usable</span><b>${fx(e.battery_usable, 1)} kWh</b></div>
         <div class="row muted"><span>Auto top-up</span><span>${d.automation.topup ? "on" : "off"} · export ${d.automation.export ? "on" : "off"} · EV gate ${d.automation.ev_gate ? "on" : "off"}</span></div></div>
+      <div class="card wide"><h2>Autopilot <span class="pill" style="background:${ap.mode === "auto" ? C.shoulder : ap.mode === "shadow" ? C.off_peak : "#757575"}">${esc(ap.mode)}</span>
+        <span class="seg"><button id="ap-topup">Plan top-up</button><button id="ap-export">Plan export</button></span></h2>
+        ${(ap.decisions || []).length ? ap.decisions.map(x => `<div class="row"><span><b>${x.window === "topup" ? "Top-up" : "Export"}</b> ${x.do ? "✅" : "⏸"} ${esc(x.reason)}
+          ${x.do ? `<span class="muted">· ${x.kw} kW ${x.window === "topup" ? "to " + x.target_soc : "to floor " + x.floor_soc}%</span>` : ""}
+          ${x.outcome ? `<br><span class="muted">${esc(x.outcome)}</span>` : ""}</span>
+          <span class="muted">${esc(x.source)} · ${esc(x.result)} · ${x.time.slice(5, 16).replace("T", " ")}</span></div>`).join("")
+          : `<div class="muted">No decisions yet. Autopilot plans at the start of the shoulder window and the evening feed-in window.</div>`}</div>
       <div class="card"><h2>Next change</h2>
         <div class="big">${esc(e.next_period.replace("_", " "))}</div>
         <div class="muted">at ${new Date(e.next_change).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</div>
         <div class="row"><span>Business day</span><b>${e.business_day ? "yes" : "no (no peak)"}</b></div>
         <div class="row"><span>High season</span><b>${e.high_season ? "yes" : "no"}</b></div></div>
     </section>`;
+  }
+
+  _wirePlan() {
+    const act = async action => { try { await this._hass.callWS({ type: "cortex/action", action }); } catch (e) { /* shown next load */ } this._load(); };
+    const t = this._root.querySelector("#ap-topup"), x = this._root.querySelector("#ap-export");
+    if (t) t.onclick = () => act("autopilot_topup");
+    if (x) x.onclick = () => act("autopilot_export");
   }
 
   // ---- HISTORY --------------------------------------------------------

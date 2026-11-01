@@ -131,6 +131,14 @@ SENSORS: tuple[CortexSensorDescription, ...] = (
         attrs=lambda b: {"issues": b.security.check()["issues"]},
     ),
     CortexSensorDescription(
+        key="autopilot", translation_key="autopilot", icon="mdi:robot-outline",
+        value=lambda b: (
+            f"{b.autopilot.mode}: " + ("go" if b.autopilot.last["do"] else "hold") + f" {b.autopilot.last['window']}"
+            if b.autopilot.last else b.autopilot.mode
+        ),
+        attrs=lambda b: {"mode": b.autopilot.mode, "active": b.autopilot.active, "decisions": b.autopilot.decisions[-8:]},
+    ),
+    CortexSensorDescription(
         key="last_event", translation_key="last_event", icon="mdi:timeline-clock-outline",
         value=lambda b: (b.timeline.items[0]["text"][:255] if b.timeline.items else None),
         attrs=lambda b: {"timeline": list(b.timeline.items)[:15]},

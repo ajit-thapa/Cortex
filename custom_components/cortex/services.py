@@ -21,7 +21,7 @@ SERVICES = (
     "save_routine", "delete_routine", "run_routine", "accept_suggestion",
     "dismiss_suggestion", "add_motion_light", "remove_motion_light", "add_heating",
     "remove_heating", "security_check", "look", "set_spot", "parcels_collected",
-    "weekly_report", "backup", "restore",
+    "weekly_report", "backup", "restore", "autopilot_decide",
 )
 
 
@@ -198,6 +198,9 @@ def async_register_services(hass: HomeAssistant) -> None:
         name = await brain.backup.restore(call.data.get("file"), call.data["with_options"])
         return {"restored": name}
 
+    async def autopilot_decide(call: ServiceCall) -> ServiceResponse:
+        return {"decision": await _brain(hass).autopilot.decide(call.data["window"], call.data.get("execute"))}
+
     S, R = SupportsResponse.NONE, SupportsResponse.OPTIONAL
     table = [
         ("say", say, vol.Schema({
@@ -288,6 +291,10 @@ def async_register_services(hass: HomeAssistant) -> None:
         }), S),
         ("parcels_collected", parcels_collected, vol.Schema({}), S),
         ("weekly_report", weekly_report, vol.Schema({vol.Optional("speak", default=False): cv.boolean}), SupportsResponse.OPTIONAL),
+        ("autopilot_decide", autopilot_decide, vol.Schema({
+            vol.Required("window"): vol.In(["topup", "export"]),
+            vol.Optional("execute"): cv.boolean,
+        }), SupportsResponse.ONLY),
         ("backup", backup, vol.Schema({}), SupportsResponse.OPTIONAL),
         ("restore", restore, vol.Schema({
             vol.Optional("file"): cv.string,

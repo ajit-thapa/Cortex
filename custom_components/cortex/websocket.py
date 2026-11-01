@@ -95,6 +95,11 @@ async def ws_overview(hass: HomeAssistant, connection, msg) -> None:
                 "day_export": brain.opts.get("studio_day_export"),
                 "day_import": brain.opts.get("studio_day_import"),
             },
+            "autopilot": {
+                "mode": brain.autopilot.mode,
+                "active": brain.autopilot.active,
+                "decisions": brain.autopilot.decisions[-6:][::-1],
+            },
             "automation": {
                 "topup": brain.opts["auto_topup"],
                 "export": brain.opts["auto_export"],
@@ -157,6 +162,7 @@ async def ws_cancel(hass: HomeAssistant, connection, msg) -> None:
 
 
 ACTIONS = (
+    "autopilot_topup", "autopilot_export",
     "accept_suggestion", "dismiss_suggestion", "run_routine", "delete_routine",
     "set_spot", "parcels_collected", "security_check", "backup", "weekly_report",
 )
@@ -195,6 +201,8 @@ async def ws_action(hass: HomeAssistant, connection, msg) -> None:
             result = True
         elif action == "security_check":
             result = brain.security.check()
+        elif action in ("autopilot_topup", "autopilot_export"):
+            result = await brain.autopilot.decide(action.split("_", 1)[1], False)
         elif action == "backup":
             result = await brain.backup.create()
         else:

@@ -59,6 +59,15 @@ SECTIONS: dict[str, dict[str, Any]] = {
         CONF_DOORBELL_CAMERA: _entity("camera"),
         CONF_LEARN: _entity("light", "switch", "lock", "cover", "binary_sensor", multiple=True),
     },
+    "autopilot": {
+        CONF_AP_MODE: sel.SelectSelector(
+            sel.SelectSelectorConfig(options=AP_MODES, mode=sel.SelectSelectorMode.LIST, translation_key="autopilot_mode")
+        ),
+        CONF_AP_LLM: sel.BooleanSelector(),
+        CONF_AP_NIGHT: _num(0.1, 0.7, 0.01, "of daily use"),
+        CONF_AGENT: sel.ConversationAgentSelector(),
+        CONF_AI_PER_HOUR: _num(0, 120, 1, "calls/h"),
+    },
     "studio": {
         CONF_ST_PV: _entity("sensor"),
         CONF_ST_GRID: _entity("sensor"),
@@ -161,7 +170,7 @@ class CortexOptionsFlow(OptionsFlow):
         return {**DEFAULTS, **self.config_entry.options}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["general", "briefing", "house", "studio", "energy", "tariff"])
+        return self.async_show_menu(step_id="init", menu_options=["general", "briefing", "house", "autopilot", "studio", "energy", "tariff"])
 
     async def _section(self, section: str, user_input: dict[str, Any] | None) -> ConfigFlowResult:
         if user_input is not None:
@@ -178,6 +187,9 @@ class CortexOptionsFlow(OptionsFlow):
 
     async def async_step_house(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._section("house", user_input)
+
+    async def async_step_autopilot(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._section("autopilot", user_input)
 
     async def async_step_studio(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._section("studio", user_input)

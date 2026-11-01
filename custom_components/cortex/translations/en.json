@@ -23,7 +23,8 @@
           "tariff": "Tariff rates",
           "briefing": "Briefings and reports",
           "house": "House, cameras and learning",
-          "studio": "Energy Studio sources"
+          "studio": "Energy Studio sources",
+          "autopilot": "Autopilot (local AI energy plan)"
         }
       },
       "general": {
@@ -122,6 +123,16 @@
           "studio_day_export": "Exported today (kWh)",
           "studio_day_import": "Imported today (kWh)"
         }
+      },
+      "autopilot": {
+        "title": "Autopilot",
+        "data": {
+          "autopilot_mode": "Mode",
+          "autopilot_use_ai": "Ask the conversation agent (otherwise rules only)",
+          "autopilot_night_share": "Share of daily use that happens overnight",
+          "conversation_agent": "Local model / conversation agent",
+          "ai_per_hour": "Max AI calls per hour"
+        }
       }
     }
   },
@@ -198,6 +209,9 @@
       },
       "last_event": {
         "name": "Last event"
+      },
+      "autopilot": {
+        "name": "Autopilot"
       }
     }
   },
@@ -211,6 +225,13 @@
         "health": "House health",
         "security": "Security",
         "parcels": "Parcels"
+      }
+    },
+    "autopilot_mode": {
+      "options": {
+        "off": "Off",
+        "shadow": "Shadow: plan and notify, never act",
+        "auto": "Auto: act within the guardrails"
       }
     }
   }

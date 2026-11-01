@@ -22,6 +22,7 @@ A shared brain for Home Assistant: one household memory, one set of speech rules
 | Heating pre-warm | Starts a climate entity early enough to reach a target by a set time; learns how fast the room warms. |
 | Voice room | Replies go to the room where someone last spoke to a satellite, falling back to recent motion. |
 | Backup | JSON backup of everything Cortex remembers under `cortex_backups/` (last 10 kept, weekly if enabled) and `restore`. |
+| Autopilot | At the start of the shoulder window and the evening feed-in window, builds a data snapshot (tariff, battery, solar forecast, EV, 7-day average load), asks your own conversation agent (a local model works) for a JSON plan, and bounds it with hard rules: top-up only when the evening export margin is positive, never below the export floor, power capped at your limits, malformed replies fall back to a rule-based plan. Modes: off, **shadow** (default: plan and notify, never act) and auto. Logs every decision and the achieved result. |
 | Energy Studio | Second sidebar panel in plain JS and CSS: live animated power flow, rate ribbon with countdown, battery/EV gauges, 24-hour solar/load/grid/battery chart, rate and forecast plan, daily history (7/14/30 days) with self-sufficiency, and house status. Sources are set under Configure > Energy Studio sources. |
 | Panel | Sidebar page: rate schedule chart, storage, health, suggestions, routines, security, visitors and camera spots, weekly stats, timeline, memory manager, speech log, backup. |
 
@@ -37,7 +38,7 @@ Energy actions are off by default. If you already run HA automations for the sam
 
 ## Services
 
-`cortex.say`, `ask`, `remember`, `recall`, `forget`, `remind`, `cancel_reminder`, `watch`, `unwatch`, `briefing`, `hush`, `run_checks`, `energy_action` (`topup`, `export`, `stop`; `force` skips the checks), `save_routine`, `delete_routine`, `run_routine`, `accept_suggestion`, `dismiss_suggestion`, `add_motion_light`, `remove_motion_light`, `add_heating`, `remove_heating`, `security_check`, `look`, `set_spot`, `parcels_collected`, `weekly_report`, `backup`, `restore`. `watch` also takes `ai` and `camera`.
+`cortex.say`, `ask`, `remember`, `recall`, `forget`, `remind`, `cancel_reminder`, `watch`, `unwatch`, `briefing`, `hush`, `run_checks`, `energy_action` (`topup`, `export`, `stop`; `force` skips the checks), `save_routine`, `delete_routine`, `run_routine`, `accept_suggestion`, `dismiss_suggestion`, `add_motion_light`, `remove_motion_light`, `add_heating`, `remove_heating`, `security_check`, `look`, `set_spot`, `parcels_collected`, `weekly_report`, `backup`, `restore`, `autopilot_decide`. `watch` also takes `ai` and `camera`.
 
 ## Tariff model
 

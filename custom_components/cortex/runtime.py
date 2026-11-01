@@ -46,6 +46,7 @@ from .const import (
     SIGNAL_UPDATE,
     STORAGE_VERSION,
 )
+from .autopilot import Autopilot
 from .backup import Backup
 from .briefing import Briefing
 from .energy import EnergyBrain
@@ -95,6 +96,7 @@ class Cortex:
         self.visitors = Visitors(self)
         self.briefing = Briefing(self)
         self.backup = Backup(self)
+        self.autopilot = Autopilot(self)
         self._ai_calls: deque[datetime] = deque()
         self.snapshot: dict[str, Any] = {}
         self.health: list[str] = []
@@ -106,7 +108,7 @@ class Cortex:
     def features(self):
         return (
             self.timeline, self.routines, self.learning, self.motion_lights,
-            self.heating, self.security, self.visitors, self.briefing, self.backup,
+            self.heating, self.security, self.visitors, self.briefing, self.backup, self.autopilot,
         )
 
     # ---- lifecycle ------------------------------------------------------
@@ -432,19 +434,19 @@ class Cortex:
         o = self.opts
 
         async def top_start(_n: datetime) -> None:
-            if o[CONF_AUTO_TOPUP]:
+            if o[CONF_AUTO_TOPUP] and not self.autopilot.controls:
                 await self.energy.start_topup()
 
         async def top_stop(_n: datetime) -> None:
-            if o[CONF_AUTO_TOPUP]:
+            if o[CONF_AUTO_TOPUP] and not self.autopilot.controls:
                 await self.energy.stop("Force Charge")
 
         async def exp_start(_n: datetime) -> None:
-            if o[CONF_AUTO_EXPORT]:
+            if o[CONF_AUTO_EXPORT] and not self.autopilot.controls:
                 await self.energy.start_export()
 
         async def exp_stop(_n: datetime) -> None:
-            if o[CONF_AUTO_EXPORT]:
+            if o[CONF_AUTO_EXPORT] and not self.autopilot.controls:
                 await self.energy.stop("Force Discharge")
 
         s_start, s_end = plan.shoulder_window
