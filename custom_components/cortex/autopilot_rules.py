@@ -25,6 +25,12 @@ def night_kwh(ctx: dict[str, Any]) -> float:
     return ctx["avg_daily_load"] * ctx["night_share"]
 
 
+def night_floor(ctx: dict[str, Any]) -> float:
+    """Lowest battery level (%) that still covers the night load, whatever tomorrow's solar looks like."""
+    cap = ctx["battery_kwh"] or 1.0
+    return round(max(ctx["export_floor"], min(90.0, night_kwh(ctx) / cap * 100 + 10)), 1)
+
+
 def baseline(window: str, ctx: dict[str, Any]) -> dict[str, Any]:
     """Deterministic plan from the economics. Always valid."""
     soc, cap = ctx.get("soc"), ctx["battery_kwh"]
@@ -46,7 +52,7 @@ def baseline(window: str, ctx: dict[str, Any]) -> dict[str, Any]:
             "window": window, "do": True, "kw": ctx["topup_kw"], "target_soc": round(target),
             "reason": f"need {need:.1f} kWh from the grid at {ctx['shoulder']:g}c to export at {ctx['fit_evening']:g}c",
         }
-    floor = max(ctx["export_floor"], min(90.0, night_kwh(ctx) / cap * 100 + 10))
+    floor = night_floor(ctx)
     if ctx["feed_in_now"] < 20:
         return {"window": window, "do": False, "reason": "feed-in rate is low right now"}
     avail = cap * (soc - floor) / 100
@@ -109,7 +115,11 @@ def validate(window: str, raw: dict[str, Any] | None, ctx: dict[str, Any], base:
                 out["target_soc"] = round(clamp(_num(raw.get("target_soc"), base.get("target_soc", 100)), soc + 1, 100))
     else:
         if out["do"]:
-            floor = round(clamp(_num(raw.get("floor_soc"), base.get("floor_soc", ctx["export_floor"])), ctx["export_floor"], 90))
+            # Solar tomorrow cannot power tonight: the model may raise the floor but never go below the night need.
+            low = night_floor(ctx)
+            floor = round(clamp(_num(raw.get("floor_soc"), base.get("floor_soc", low)), low, 90))
+            if raw.get("floor_soc") is not None and _num(raw.get("floor_soc"), floor) < low - 0.5:
+                out["reason"] = (out["reason"] + f" (floor raised to {floor}% to cover the night)")[:260]
             if ctx["feed_in_now"] < 15 or soc <= floor + 2:
                 out.update(do=False, reason="feed-in too low or battery near the floor")
             else:
@@ -120,11 +130,14 @@ def validate(window: str, raw: dict[str, Any] | None, ctx: dict[str, Any], base:
 
 def prompt(window: str, ctx: dict[str, Any], base: dict[str, Any]) -> str:
     keys = (
-        "now", "soc", "battery_kwh", "pv_today", "pv_tomorrow", "avg_daily_load", "night_share", "ev_plugged",
-        "ev_need_kwh", "shoulder", "off_peak", "peak", "fit_evening", "feed_in_now", "business_day",
-        "topup_kw", "export_kw", "export_floor", "recent",
+        "now", "soc", "battery_kwh", "battery_usable_kwh", "pv_today", "pv_tomorrow", "solar_day", "avg_daily_load",
+        "night_share", "ev_plugged", "ev_need_kwh", "shoulder", "off_peak", "peak", "fit_evening", "feed_in_now",
+        "business_day", "topup_kw", "export_kw", "export_floor", "recent",
     )
-    data = json.dumps({k: ctx.get(k) for k in keys}, default=str)
+    facts = {k: ctx.get(k) for k in keys}
+    facts["margin_c_per_kwh"] = round(margin(ctx), 1)
+    facts["night_floor_soc"] = night_floor(ctx)
+    data = json.dumps(facts, default=str)
     if window == TOPUP:
         ask = (
             'Decide whether to charge the battery from the grid now (cheap shoulder window). '
@@ -138,7 +151,10 @@ def prompt(window: str, ctx: dict[str, Any], base: dict[str, Any]) -> str:
     return (
         "You are the energy planner for an Australian home on an AGL time-of-use plan. Rates are cents per kWh. "
         "Buying in the shoulder window is cheap; exporting in the evening pays the feed-in rate; "
-        "never let the battery run flat before morning. Do not call tools. Do not think at length: answer immediately with the JSON. "
+        "never let the battery run flat before morning (night_floor_soc is the lowest safe level; exports below it are overridden). "
+        "A top-up only pays when margin_c_per_kwh is clearly positive and solar will not fill the battery anyway. "
+        "Learn from recent decisions: each shows its result and, when finished, the dollars it earned or cost. "
+        "Do not call tools. Do not think at length: answer immediately with the JSON. "
         f"{ask} Data: {data} Rule-based suggestion: {json.dumps(base)}"
     )
 

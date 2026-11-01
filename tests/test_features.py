@@ -263,12 +263,13 @@ async def test_learning_accept_creates_routine(hass: HomeAssistant):
         brain.learning.obs.append(["light.lounge", "on", when.isoformat()])
     added = await brain.learning.analyse()
     assert added
+    waiting = len(brain.learning.pending)  # weekday and, depending on today's date, weekend patterns
     sid = brain.learning.pending[0]["id"]
     routine = await hass.services.async_call(
         DOMAIN, "accept_suggestion", {"id": sid}, blocking=True, return_response=True
     )
     assert routine["routine"]["name"] in brain.routines.items
-    assert hass.states.get("sensor.cortex_routine_suggestions").state == "0"
+    assert hass.states.get("sensor.cortex_routine_suggestions").state == str(waiting - 1)
 
 
 # ---- watches with AI / voice room ---------------------------------------------

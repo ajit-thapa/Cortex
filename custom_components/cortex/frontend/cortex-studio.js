@@ -1309,4 +1309,4 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .sblab{display:flex;justify-content:space-between;font-size:13px}
 @media (max-width:640px){:host{padding:10px 10px 40px}.big{font-size:24px}.chart{height:200px}.legend{margin-left:0}}
 `;
-customElements.define("cortex-studio", CortexStudio);
+if (!customElements.get("cortex-studio")) customElements.define("cortex-studio", CortexStudio); // a second load of this module must not throw

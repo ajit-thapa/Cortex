@@ -18,7 +18,10 @@ PROMPT = (
     "You share a household memory with every other assistant in the house. "
     "Use cortex tools to remember durable facts the user tells you, recall them "
     "before answering questions about the household, and set reminders. "
-    "Energy questions: use energy_status instead of guessing."
+    "Energy questions: use energy_status instead of guessing; for why the battery did something, use autopilot_status. "
+    "For house questions (doors, visitors, parcels, what happened today) use house_status or timeline. "
+    "Answer briefly and in plain words, then say what you did if you changed anything. "
+    "Never invent numbers: if a tool has no value, say so."
 )
 
 
@@ -73,17 +76,89 @@ class ForgetTool(_Tool):
 
 class RemindTool(_Tool):
     name = "remind"
-    description = "Speak a reminder aloud after a number of minutes."
+    description = (
+        "Speak a reminder aloud. Give in_minutes for a delay, or at as a 24 hour HH:MM clock time "
+        "(today, or tomorrow if that time has passed)."
+    )
     parameters = vol.Schema(
-        {vol.Required("message"): str, vol.Required("in_minutes"): vol.All(int, vol.Range(min=1))}
+        {
+            vol.Required("message"): str,
+            vol.Optional("in_minutes"): vol.All(int, vol.Range(min=1, max=60 * 24 * 14)),
+            vol.Optional("at"): vol.Match(r"^([01]?\d|2[0-3]):[0-5]\d$"),
+        }
     )
 
     async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
         args = tool_input.tool_args
         from datetime import timedelta
 
-        item = self.brain.add_reminder(args["message"], dt_util.now() + timedelta(minutes=args["in_minutes"]))
+        now = dt_util.now()
+        if args.get("at"):
+            hh, mm = (int(x) for x in args["at"].split(":"))
+            when = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if when <= now:
+                when += timedelta(days=1)
+        elif args.get("in_minutes"):
+            when = now + timedelta(minutes=args["in_minutes"])
+        else:
+            return _out({"error": "give in_minutes or at"})
+        item = self.brain.add_reminder(args["message"], when)
         return _out({"reminder": item["id"], "at": item["at"]})
+
+
+class RemindersTool(_Tool):
+    name = "reminders"
+    description = "List pending reminders, or cancel one by id."
+    parameters = vol.Schema({vol.Optional("cancel"): str})
+
+    async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
+        cancel = tool_input.tool_args.get("cancel")
+        cancelled = self.brain.cancel_reminder(cancel) if cancel else None
+        out: dict[str, Any] = {"pending": [{"id": r["id"], "message": r["message"], "at": r["at"]} for r in self.brain.reminders]}
+        if cancel:
+            out["cancelled"] = bool(cancelled)
+        return _out(out)
+
+
+class AutopilotStatusTool(_Tool):
+    name = "autopilot_status"
+    description = "Battery autopilot mode and its latest decisions with the reasons (top-up and evening export)."
+    parameters = vol.Schema({vol.Optional("count", default=3): vol.All(int, vol.Range(min=1, max=10))})
+
+    async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
+        ap, n = self.brain.autopilot, tool_input.tool_args.get("count", 3)
+        keep = ("window", "do", "reason", "result", "source", "kw", "target_soc", "floor_soc", "outcome", "time")
+        return _out({
+            "mode": ap.mode,
+            "active": ap.active,
+            "decisions": [{k: d[k] for k in keep if k in d} for d in ap.decisions[-n:][::-1]],
+        })
+
+
+class HouseStatusTool(_Tool):
+    name = "house_status"
+    description = "Security sweep, house health issues, visitors today and parcels waiting."
+    parameters = vol.Schema({})
+
+    async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
+        b = self.brain
+        return _out({
+            "security": b.security.check(),
+            "health_issues": list(b.health),
+            "visitors_today": b.visitors.today_count(),
+            "parcels_waiting": b.visitors.parcels_waiting,
+            "recent_visitors": [f"{v['kind']}: {v['text']}" for v in b.visitors.log[-5:][::-1]],
+        })
+
+
+class TimelineTool(_Tool):
+    name = "timeline"
+    description = "What happened recently around the house, newest first, plus this week's totals."
+    parameters = vol.Schema({vol.Optional("count", default=10): vol.All(int, vol.Range(min=1, max=30))})
+
+    async def async_call(self, hass, tool_input, llm_context) -> dict[str, Any]:
+        n = tool_input.tool_args.get("count", 10)
+        return _out({"events": list(self.brain.timeline.items)[:n], "week": self.brain.timeline.week()})
 
 
 class EnergyStatusTool(_Tool):
@@ -133,14 +208,18 @@ class CortexAPI(llm.API):
             RecallTool(self.brain),
             ForgetTool(self.brain),
             RemindTool(self.brain),
+            RemindersTool(self.brain),
             EnergyStatusTool(self.brain),
+            AutopilotStatusTool(self.brain),
+            HouseStatusTool(self.brain),
+            TimelineTool(self.brain),
             RunRoutineTool(self.brain),
             SecurityCheckTool(self.brain),
         ]
         if self.brain.routines.items:
             prompt_routines = ", ".join(sorted(self.brain.routines.items))
         top = self.brain.book.recall("", 5)
-        prompt = PROMPT
+        prompt = PROMPT + f" Now: {dt_util.now().strftime('%A %d %B %H:%M')}."
         if self.brain.routines.items:
             prompt += " Routines you can run: " + prompt_routines + "."
         if top:

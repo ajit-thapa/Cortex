@@ -119,7 +119,8 @@ class Autopilot(Feature):
         if s.get("ev_room") is not None:
             ev_need = float(s["ev_room"])
         recent = [
-            {"window": d["window"], "do": d["do"], "reason": d.get("reason", "")[:80], "result": d.get("result")}
+            {"window": d["window"], "do": d["do"], "reason": d.get("reason", "")[:80], "result": d.get("result"),
+             **({"outcome": d["outcome"]} if d.get("outcome") else {})}
             for d in self.decisions[-4:]
         ]
         return {
@@ -128,6 +129,8 @@ class Autopilot(Feature):
             "battery_kwh": float(o[CONF_BATTERY_KWH]),
             "pv_today": s.get("pv_today"),
             "pv_tomorrow": s.get("pv_tomorrow"),
+            "solar_day": s.get("solar_day"),
+            "battery_usable_kwh": s.get("battery_usable"),
             "avg_daily_load": await self.avg_daily_load(),
             "night_share": float(o[CONF_AP_NIGHT]),
             "ev_plugged": bool(s.get("ev_plugged")),
@@ -156,7 +159,11 @@ class Autopilot(Feature):
             try:
                 limit = float(brain.opts.get(CONF_AP_TIMEOUT) or DEFAULT_TIMEOUT)
                 async with asyncio.timeout(limit):
-                    raw = rules.parse(await brain.ask_agent(rules.prompt(window, ctx, base)))
+                    question = rules.prompt(window, ctx, base)
+                    raw = rules.parse(await brain.ask_agent(question))
+                    if raw is None and brain.ai_allowed():
+                        # One retry when the reply was not JSON; still inside the same time limit.
+                        raw = rules.parse(await brain.ask_agent("Reply with ONLY the JSON object, no prose. " + question))
             except TimeoutError:
                 _LOGGER.warning("Autopilot model gave no answer in %ss, using rules", limit)
             except HomeAssistantError as err:

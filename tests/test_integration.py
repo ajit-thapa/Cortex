@@ -47,7 +47,25 @@ async def test_memory_services_and_llm_api(hass: HomeAssistant):
         hass, DOMAIN,
         llm.LLMContext(platform="test", context=None, language="en", assistant=None, device_id=None),
     )
-    assert {t.name for t in api.tools} >= {"remember", "recall", "energy_status"}
+    assert {t.name for t in api.tools} >= {"remember", "recall", "energy_status", "autopilot_status", "house_status", "timeline", "reminders"}
+    tools = {t.name: t for t in api.tools}
+    ctx = llm.LLMContext(platform="test", context=None, language="en", assistant=None, device_id=None)
+
+    def call(name, **args):
+        return tools[name].async_call(hass, llm.ToolInput(tool_name=name, tool_args=args), ctx)
+
+    out = await call("remind", message="Bins out", at="23:59")
+    out = getattr(out, "data", out)
+    assert out["reminder"]
+    listed = getattr(await call("reminders"), "data", None) or await call("reminders")
+    listed = getattr(listed, "data", listed)
+    assert any(r["message"] == "Bins out" for r in listed["pending"])
+    gone = getattr(await call("reminders", cancel=out["reminder"]), "data", None)
+    assert gone is None or gone["cancelled"]
+    ap = await call("autopilot_status")
+    assert getattr(ap, "data", ap)["mode"] in ("off", "shadow", "auto")
+    hs = await call("house_status")
+    assert "parcels_waiting" in getattr(hs, "data", hs)
 
 
 async def test_say_respects_quiet_hours_and_speaks(hass: HomeAssistant):

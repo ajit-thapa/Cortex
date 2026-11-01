@@ -36,6 +36,22 @@ def test_baseline_export_keeps_overnight_floor():
     assert not r.baseline("export", dict(CTX, soc=95, feed_in_now=3))["do"]
 
 
+def test_export_floor_never_below_night_need():
+    # model asks for the bare 30% floor but the night load needs more
+    ctx = dict(CTX, soc=95, avg_daily_load=40)  # 14 kWh overnight on 50 kWh = 38% floor
+    low = r.night_floor(ctx)
+    assert low > 30
+    d = r.validate("export", {"do": True, "kw": 7, "floor_soc": 30, "reason": "strong solar tomorrow"}, ctx, r.baseline("export", ctx))
+    assert d["do"] and d["floor_soc"] >= round(low)
+    assert "night" in d["reason"]
+
+
+def test_prompt_carries_margin_floor_and_outcomes():
+    ctx = dict(CTX, recent=[{"window": "export", "do": True, "result": "started", "outcome": "export: 90% to 40% (25.0 kWh, +6.30 dollars)"}])
+    text = r.prompt("export", ctx, r.baseline("export", dict(ctx, soc=95)))
+    assert "margin_c_per_kwh" in text and "night_floor_soc" in text and "+6.30 dollars" in text
+
+
 def test_baseline_unknown_soc():
     assert not r.baseline("topup", dict(CTX, soc=None))["do"]
 
