@@ -20,7 +20,7 @@ PLATFORMS = ["sensor"]
 PANEL_URL = "cortex"
 STUDIO_URL = "cortex-studio"
 FRONTEND_PATH = f"/{DOMAIN}_static"
-FRONTEND_VERSION = "0.5.1"  # cache-buster for the panel scripts
+FRONTEND_VERSION = "0.6.0"  # cache-buster for the panel scripts
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

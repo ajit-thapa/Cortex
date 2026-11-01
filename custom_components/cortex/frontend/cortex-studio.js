@@ -5,6 +5,24 @@ const C = {
   peak: "#ef5350", shoulder: "#66bb6a", off_peak: "#ffa726",
 };
 const NS = "http://www.w3.org/2000/svg";
+const N = "sensor.neovolt_neovoltlocal_";
+const E = {
+  bt: [["Voltage", N + "battery_voltage", "mdi"], ["Current", N + "battery_current"], ["Power", N + "battery_power"], ["Health (SOH)", N + "combined_battery_soh"],
+       ["Max cell temp", N + "battery_max_cell_temperature"], ["Min cell temp", N + "battery_min_cell_temperature"], ["Max cell V", N + "battery_max_cell_voltage"], ["Min cell V", N + "battery_min_cell_voltage"]],
+  health: [["Inverter", N + "inverter_fault"], ["Battery", N + "battery_fault"], ["Protection", N + "battery_protection"], ["Grid freq", N + "grid_frequency"], ["Meter", "sensor.home_energy_purchased_today"]],
+  life: [["Lifetime charged", N + "battery_charge_energy"], ["Lifetime discharged", N + "battery_discharge_energy"]],
+  flows: [["Solar", N + "combined_pv_power", "#f2c744"], ["House", N + "combined_house_load", "#e8833a"], ["Battery", N + "combined_battery_power", "#7f5af0"], ["Grid", N + "grid_total_active_power", "#e45649"]],
+  day: [["Solar", "sensor.neovolt_online_pv_generated_today", "#f2c744"], ["Import", "sensor.neovolt_online_grid_import_today", "#e45649"], ["Export", "sensor.neovolt_online_feed_in_today", "#50a14f"]],
+  cyc: [["Charged", "sensor.neovolt_online_battery_charged_today", "#26a69a"], ["Discharged", "sensor.neovolt_online_battery_discharged_today", "#7e57c2"]],
+  cost: [["Solar sold (period)", "sensor.agl_solar_sold_this_period"], ["Supply charge", "sensor.agl_supply_charge"], ["Recent cost total", "sensor.globird_energy_balance"],
+         ["GloBird invoice", "sensor.globird_energy_latest_invoice"], ["Export total (period)", "sensor.agl_solar_feed_in_credit"], ["Consumption (period)", "sensor.agl_consumption_this_period"]],
+  autos: ["automation.agl_plan_shoulder_grid_top_up_battery", "automation.agl_plan_evening_export_17_00_21_00_28c_fit", "automation.agl_plan_ev_charge_in_shoulder_window", "automation.agl_plan_ev_plug_in_gate_10_00_14_00_only", "automation.agl_plan_peak_guard_ev_and_battery"],
+  nums: [["Battery capacity (kWh)", "input_number.system_battery_capacity"], ["BYD capacity (kWh)", "input_number.system_ev_battery_capacity"], ["PV capacity (kW)", "input_number.system_solar_inverter_size"],
+         ["Wall connector (kW)", "input_number.system_ev_charger_power"], ["Round-trip efficiency", "input_number.system_battery_round_trip_efficiency"], ["Low-solar line (kWh)", "input_number.agl_low_solar_threshold"],
+         ["BYD target SOC (%)", "input_number.byd_target_soc"], ["Shoulder (c)", "input_number.agl_plan_shoulder"], ["Off-peak (c)", "input_number.agl_plan_off_peak"],
+         ["Peak high season (c)", "input_number.agl_plan_high_season_peak"], ["Peak low season (c)", "input_number.agl_plan_low_season_peak"], ["FiT evening (c)", "input_number.agl_plan_fit_evening"],
+         ["FiT morning (c)", "input_number.agl_plan_fit_morning"], ["FiT off-peak (c)", "input_number.agl_plan_fit_off_peak"], ["Supply (c/day)", "input_number.agl_plan_supply_charge"]],
+};
 const EV = {
   img: "/api/image/serve/3215d9a31830fbbdda209ef2fddeae4b/original",
   soc: "sensor.byd_sealion_7_battery_level", power: "sensor.byd_sealion_7_battery_power",
@@ -20,7 +38,7 @@ const EV = {
   wcA: ["sensor.tesla_wall_connector_phase_a_current", "sensor.tesla_wall_connector_phase_b_current", "sensor.tesla_wall_connector_phase_c_current"],
   wcT: [["Handle", "sensor.tesla_wall_connector_handle_temperature"], ["MCU", "sensor.tesla_wall_connector_mcu_temperature"], ["PCB", "sensor.tesla_wall_connector_pcb_temperature"]],
 };
-const TABS = [["now", "Now"], ["ev", "EV"], ["plan", "Plan"], ["history", "History"], ["house", "House"]];
+const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["history", "History"], ["house", "House"]];
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fx = (v, n = 1) => (v === null || v === undefined || Number.isNaN(v) ? "–" : Number(v).toFixed(n));
@@ -66,6 +84,7 @@ class CortexStudio extends HTMLElement {
     if (this._tab === "now" && Date.now() - this._seriesAt > 300000) this._loadSeries();
     if (this._tab === "history" && !this._daily) this._loadDaily();
     if (this._tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
+    if ((this._tab === "battery" || this._tab === "analytics") && Date.now() - ((this._moreAt || {})[this._tab] || 0) > 300000) this._loadMore(this._tab);
   }
 
   _kw(id, invert = false) {
@@ -161,6 +180,7 @@ class CortexStudio extends HTMLElement {
     this._render();
     if (tab === "now" && !this._series) this._loadSeries();
     if (tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
+    if ((tab === "battery" || tab === "analytics") && Date.now() - ((this._moreAt || {})[tab] || 0) > 300000) this._loadMore(tab);
     if (tab === "history" && !this._daily) this._loadDaily();
   }
 
@@ -169,8 +189,8 @@ class CortexStudio extends HTMLElement {
     this._root.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === this._tab));
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
-    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, plan: () => this._wirePlan(), history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
+    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => this._paintMore("battery"), analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); }, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -441,6 +461,144 @@ class CortexStudio extends HTMLElement {
       <text x="${W - R + 4}" y="${yp(maxP) + 10}" class="ax">${maxP.toFixed(0)}</text>`;
   }
 
+  // ---- generic data loaders -------------------------------------------
+  async _hist(ids, hours, n = 144, scale = {}) {
+    const end = new Date(), start = new Date(end.getTime() - hours * 3600000);
+    const res = await this._hass.callWS({ type: "history/history_during_period", start_time: start.toISOString(), end_time: end.toISOString(),
+      entity_ids: ids, minimal_response: true, no_attributes: true, significant_changes_only: false }).catch(() => ({}));
+    const step = (end - start) / n, out = { start, end };
+    ids.forEach(id => {
+      const rows = res[id] || [], a = new Array(n).fill(null); let j = 0, last = null;
+      for (let i = 0; i < n; i++) {
+        const t = start.getTime() + i * step;
+        while (j < rows.length && (rows[j].lu ?? rows[j].lc) * 1000 <= t) { const v = parseFloat(rows[j].s); if (!Number.isNaN(v)) last = v * (scale[id] ?? 1); j++; }
+        a[i] = last;
+      }
+      out[id] = a;
+    });
+    return out;
+  }
+  async _dayStats(ids, days) {
+    const start = new Date(Date.now() - days * 86400000);
+    const res = await this._hass.callWS({ type: "recorder/statistics_during_period", start_time: start.toISOString(), statistic_ids: ids, period: "day", types: ["max"] }).catch(() => ({}));
+    const keys = [...new Set(ids.flatMap(id => (res[id] || []).map(r => new Date(r.start).toLocaleDateString("en-CA"))))].sort();
+    const by = id => { const m = {}; (res[id] || []).forEach(r => { m[new Date(r.start).toLocaleDateString("en-CA")] = r.max; }); return keys.map(k => m[k] ?? 0); };
+    return { days: keys.map(k => new Date(k + "T12:00").toLocaleDateString([], { weekday: "short" })), by };
+  }
+  _st(id) { return this._hass.states[id]; }
+  _tile(label, id, color) {
+    const st = this._st(id), v = st ? st.state : "–", u = st && st.attributes.unit_of_measurement ? " " + st.attributes.unit_of_measurement : "";
+    const num = parseFloat(v), show = Number.isNaN(num) ? v : (Math.abs(num) >= 100 ? num.toFixed(0) : num.toFixed(Math.abs(num) < 10 ? 2 : 1)).replace(/\.?0+$/, "");
+    return `<div class="stat" style="border-color:${color || C.ev}"><span class="muted">${esc(label)}</span><b>${esc(show)}<small>${esc(u)}</small></b></div>`;
+  }
+  async _loadMore(tab) {
+    if (tab === "battery") {
+      const f = E.flows.map(x => x[1]);
+      const [fl, soc, tmp] = await Promise.all([this._hist(f, 24, 144), this._hist([N + "combined_battery_soc"], 48, 144), this._hist([N + "battery_max_cell_temperature", N + "battery_min_cell_temperature"], 24, 144)]);
+      this._bt = { fl, soc, tmp };
+    } else if (tab === "analytics") {
+      const pvId = "sensor.sungrow_pv", fc = "sensor.pv_forecast_power_now", sun = "sensor.sun_solar_elevation";
+      const [sol, dayS, cyc, eff, rate] = await Promise.all([
+        this._hist([pvId, fc, sun], 14, 168, { [fc]: 0.001 }), this._dayStats(E.day.concat(E.cyc).map(x => x[1]), 8),
+        Promise.resolve(null), this._hist(["sensor.neovolt_online_self_sufficiency", "sensor.neovolt_online_self_consumption"], 168, 84),
+        this._hist(["sensor.agl_plan_import_rate", "sensor.agl_plan_feed_in_rate"], 48, 96)]);
+      this._an = { sol, dayS, eff, rate };
+    }
+    this._moreAt = { ...(this._moreAt || {}), [tab]: Date.now() };
+    if (this._tab === tab) this._paintMore(tab);
+  }
+
+  // ---- BATTERY ---------------------------------------------------------
+  _viewBattery() {
+    const soc = this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc");
+    const cap = this._num("input_number.system_battery_capacity") ?? 50;
+    return `<section class="grid">
+      <div class="card"><h2>Home ESS</h2><div class="gauges">${gauge(soc, "Level", C.batt, fx(soc === null ? null : soc * cap / 100, 1) + " of " + fx(cap, 0) + " kWh")}</div>
+        <div class="stats" style="margin-top:12px">${E.life.map(([l, id]) => this._tile(l, id, C.batt)).join("")}</div></div>
+      <div class="card"><h2>Monitor</h2><div class="stats">${E.bt.map(([l, id]) => this._tile(l, id, C.batt)).join("")}</div></div>
+      <div class="card"><h2>System health</h2><div class="stats">${E.health.map(([l, id]) => {
+        const st = this._st(id), ok = st && /^(ok|normal|none|0)$/i.test(st.state);
+        return this._tile(l, id, st && (ok || !isNaN(parseFloat(st.state))) ? C.shoulder : C.peak); }).join("")}</div></div>
+      <div class="card wide"><h2>Power flows today (W)</h2><div id="bt-flows"></div></div>
+      <div class="card"><h2>Charge level 48h (%)</h2><div id="bt-soc"></div></div>
+      <div class="card"><h2>Cell temperatures 24h (°C)</h2><div id="bt-tmp"></div></div>
+    </section>`;
+  }
+
+  // ---- ANALYTICS -------------------------------------------------------
+  _viewAnalytics() {
+    const todays = [["Solar generated", "sensor.neovolt_online_pv_generated_today", C.solar], ["Exported", "sensor.neovolt_online_feed_in_today", C.shoulder], ["Imported", "sensor.neovolt_online_grid_import_today", C.peak],
+      ["Battery charged", "sensor.neovolt_online_battery_charged_today", C.batt], ["Battery discharged", "sensor.neovolt_online_battery_discharged_today", "#7e57c2"], ["Battery level", "sensor.neovolt_online_soc", C.batt]];
+    return `<section class="grid">
+      <div class="card wide"><h2>Today</h2><div class="stats">${todays.map(([l, id, c]) => this._tile(l, id, c)).join("")}</div>
+        <div class="row" style="margin-top:8px"><span>${esc((this._st("sensor.daily_summary") || {}).state || "")}</span><span class="muted">Best appliance time: <b>${esc((this._st("sensor.best_time_to_run_appliances") || {}).state || "–")}</b></span></div></div>
+      <div class="card wide"><h2>Solar production vs forecast (kW)</h2><div id="an-sol"></div></div>
+      <div class="card"><h2>Daily energy (kWh)</h2><div id="an-day"></div></div>
+      <div class="card"><h2>Battery cycling (kWh/day)</h2><div id="an-cyc"></div></div>
+      <div class="card"><h2>Self-sufficiency & self-consumption (%)</h2><div id="an-eff"></div></div>
+      <div class="card"><h2>AGL rates 48h</h2><div id="an-rate"></div></div>
+      <div class="card wide"><h2>Cost tracking</h2><div class="stats">${E.cost.map(([l, id]) => this._tile(l, id, C.off_peak)).join("")}</div></div>
+    </section>`;
+  }
+
+  _paintMore(tab) {
+    const q = id => this._root.querySelector(id), put = (id, h) => { const el = q(id); if (el) el.innerHTML = h; };
+    if (tab === "battery" && this._bt) {
+      const { fl, soc, tmp } = this._bt;
+      put("#bt-flows", lineChart(E.flows.map(([n, id, c], i) => ({ name: n, color: c, data: fl[id], area: i === 0 })), { start: fl.start, end: fl.end, h: 240, w: 1100 }));
+      put("#bt-soc", lineChart([{ name: "SOC", color: C.batt, data: soc[N + "combined_battery_soc"], area: true }], { min: 0, max: 100, start: soc.start, end: soc.end }));
+      put("#bt-tmp", lineChart([{ name: "Max cell", color: "#e8833a", data: tmp[N + "battery_max_cell_temperature"] }, { name: "Min cell", color: "#4a90d9", data: tmp[N + "battery_min_cell_temperature"] }], { start: tmp.start, end: tmp.end }));
+    }
+    if (tab === "analytics" && this._an) {
+      const { sol, dayS, eff, rate } = this._an, ids = ["sensor.sungrow_pv", "sensor.pv_forecast_power_now"];
+      put("#an-sol", lineChart([{ name: "Actual PV", color: "#FFB300", data: sol[ids[0]], area: true }, { name: "Forecast", color: "#00B0FF", data: sol[ids[1]] }], { start: sol.start, end: sol.end, min: 0, h: 220, w: 1100 }));
+      put("#an-day", barChart(dayS.days, E.day.map(([n, id, c]) => ({ name: n, color: c, data: dayS.by(id) }))));
+      put("#an-cyc", barChart(dayS.days, E.cyc.map(([n, id, c]) => ({ name: n, color: c, data: dayS.by(id) }))));
+      put("#an-eff", lineChart([{ name: "Self-sufficiency", color: "#0f9d58", data: eff["sensor.neovolt_online_self_sufficiency"] }, { name: "Self-consumption", color: "#12b5cb", data: eff["sensor.neovolt_online_self_consumption"] }], { min: 0, max: 100, start: eff.start, end: eff.end, days: true }));
+      put("#an-rate", lineChart([{ name: "Import", color: "#e45649", data: rate["sensor.agl_plan_import_rate"] }, { name: "Feed-in", color: "#50a14f", data: rate["sensor.agl_plan_feed_in_rate"] }], { step: true, min: 0, start: rate.start, end: rate.end }));
+    }
+  }
+
+  // ---- PLAN extras: money, rate windows, automations, settings ---------
+  _planExtras() {
+    const n = id => this._num(id) ?? 0, gen = n("sensor.neovolt_online_pv_generated_today"), exp = n("sensor.neovolt_online_feed_in_today"), imp = n("sensor.neovolt_online_grid_import_today");
+    const p = n("sensor.agl_plan_import_rate"), f = n("sensor.agl_plan_feed_in_rate"), self = Math.max(gen - exp, 0);
+    const net = self * p + exp * f - imp * p, h = new Date().getHours(), bd = this._data.energy.business_day, high = this._data.energy.high_season;
+    const v = id => fx(this._num(id), 2), now = (a, b) => (h >= a && h < b ? '<b class="ok">◀ now</b>' : "");
+    const pk = high ? "input_number.agl_plan_high_season_peak" : "input_number.agl_plan_low_season_peak";
+    return `<div class="card"><h2>Money today</h2>
+        <div class="row"><span>Solar used on-site (${fx(self, 1)} kWh)</span><b>$${fx(self * p, 2)} avoided</b></div>
+        <div class="row"><span>Exported (${fx(exp, 1)} kWh)</span><b>$${fx(exp * f, 2)} earned</b></div>
+        <div class="row"><span>Imported (${fx(imp, 1)} kWh)</span><b>$${fx(imp * p, 2)} spent</b></div>
+        <div class="row"><span><b>Net benefit</b></span><b class="${net >= 0 ? "ok" : "bad"}">$${fx(net, 2)}</b></div>
+        <div class="muted">Indicative: uses the current rate for all kWh.</div></div>
+      <div class="card"><h2>Rate windows</h2>
+        <div class="row"><span>10–14 Shoulder</span><span><b>${v("input_number.agl_plan_shoulder")}c</b> ${now(10, 14)}</span></div>
+        <div class="row"><span>14–16 Off peak</span><span><b>${v("input_number.agl_plan_off_peak")}c</b> ${now(14, 16)}</span></div>
+        <div class="row"><span>16–20 ${bd ? "Peak" : "Off peak (no peak today)"}</span><span><b>${bd ? v(pk) : v("input_number.agl_plan_off_peak")}c</b> ${now(16, 20)}</span></div>
+        <div class="row"><span>20–10 Off peak</span><span><b>${v("input_number.agl_plan_off_peak")}c</b> ${h >= 20 || h < 10 ? '<b class="ok">◀ now</b>' : ""}</span></div>
+        <div class="row"><span>FiT 07–08 / 17–21</span><span><b>${v("input_number.agl_plan_fit_morning")}c / ${v("input_number.agl_plan_fit_evening")}c</b></span></div>
+        <div class="muted">Supply ${v("input_number.agl_plan_supply_charge")} c/day · ${high ? "high" : "low"} season.</div></div>
+      <div class="card"><h2>Automations</h2>${E.autos.map(id => { const st = this._st(id); return st ? `<label class="row"><span>${esc(st.attributes.friendly_name || id)}</span><input type="checkbox" class="sw" data-auto="${id}" ${st.state === "on" ? "checked" : ""}></label>` : ""; }).join("") || '<div class="muted">None found.</div>'}</div>
+      <div class="card"><h2>System settings <span class="muted">edit a value, press Enter</span></h2>${E.nums.map(([l, id]) => { const st = this._st(id); return st ? `<div class="row"><span>${esc(l)}</span><input type="number" class="num" data-num="${id}" value="${esc(st.state)}" step="${st.attributes.step || "any"}" min="${st.attributes.min ?? ""}" max="${st.attributes.max ?? ""}"></div>` : ""; }).join("")}</div>`;
+  }
+  _wireExtras() {
+    const call = (d, sv, data) => this._hass.callService(d, sv, data).catch(() => {});
+    this._root.querySelectorAll("[data-auto]").forEach(c => c.onchange = () => call("automation", c.checked ? "turn_on" : "turn_off", { entity_id: c.dataset.auto }));
+    this._root.querySelectorAll("[data-num]").forEach(i => i.onchange = () => { const v = parseFloat(i.value); if (!Number.isNaN(v)) call("input_number", "set_value", { entity_id: i.dataset.num, value: v }); });
+  }
+
+  // ---- HOUSEKEEPING extras --------------------------------------------
+  _houseExtras() {
+    const ups = Object.entries(this._hass.states).filter(([k, s]) => k.startsWith("update.") && s.state === "on").map(([k, s]) => s.attributes.friendly_name || k);
+    const w = this._st("weather.forecast_ingleburn");
+    return `<div class="card"><h2>Housekeeping</h2>
+        <div class="row"><span>Updates pending</span><b>${ups.length ? esc(ups.join(", ")) : "None"}</b></div>
+        <div class="row"><span>Internet speed</span><b>${esc((this._st("sensor.fast_com_download") || {}).state || "–")} Mbps</b></div>
+        <div class="row"><span>Solar exported at battery full</span><b>${esc((this._st("input_number.solar_exported_at_battery_full") || {}).state || "–")}</b></div>
+        ${w ? `<div class="row"><span>Weather</span><b>${esc(w.state.replace(/-/g, " "))} ${w.attributes.temperature ?? ""}°</b></div>` : ""}</div>`;
+  }
+
   // ---- PLAN -----------------------------------------------------------
   _viewPlan() {
     const d = this._data, e = d.energy, sch = d.schedule;
@@ -487,6 +645,7 @@ class CortexStudio extends HTMLElement {
         <div class="muted">at ${new Date(e.next_change).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</div>
         <div class="row"><span>Business day</span><b>${e.business_day ? "yes" : "no (no peak)"}</b></div>
         <div class="row"><span>High season</span><b>${e.high_season ? "yes" : "no"}</b></div></div>
+      ${this._planExtras()}
     </section>`;
   }
 
@@ -556,6 +715,7 @@ class CortexStudio extends HTMLElement {
       <div class="card"><h2>House health</h2>${list(d.health, h => `<div class="row">${esc(h)}</div>`, "All clear")}</div>
       <div class="card"><h2>Suggestions</h2>${list(d.suggestions || [], x => `<div class="row"><span>💡 ${esc(x.text)}</span><button data-acc="${x.id}">Automate</button></div>`, "None yet.")}</div>
       <div class="card"><h2>Routines</h2>${list(d.routines || [], r => `<div class="row"><span>${esc(r.name)}</span><button data-run="${esc(r.name)}">Run</button></div>`, "No routines.")}</div>
+      ${this._houseExtras()}
       <div class="card wide"><h2>Timeline</h2>${list((d.timeline || []).slice(0, 14), x => `<div class="row"><span>${esc(x.text)}</span><span class="muted">${esc(x.kind)} · ${x.time.slice(5, 16).replace("T", " ")}</span></div>`, "No events yet.")}</div>
     </section>`;
   }
@@ -566,6 +726,38 @@ class CortexStudio extends HTMLElement {
     q("[data-run]").forEach(b => b.onclick = () => act({ action: "run_routine", id: b.dataset.run }));
     const c = this._root.querySelector("#seccheck"); if (c) c.onclick = () => act({ action: "security_check" });
   }
+}
+
+// ---- generic charts ------------------------------------------------------
+function lineChart(series, o = {}) {
+  const W = o.w || 520, H = o.h || 200, L = 40, R = 12, T = 10, B = 22;
+  const all = series.flatMap(s => s.data.filter(v => v !== null));
+  if (!all.length) return `<div class="muted" style="padding:20px">No data yet.</div>`;
+  const lo = o.min ?? Math.min(0, ...all), hi = o.max ?? (Math.max(...all, 1) * 1.08), n = series[0].data.length;
+  const x = i => L + (i / Math.max(n - 1, 1)) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  let g = "";
+  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)}</text>`; }
+  let lab = "";
+  if (o.start) for (let k = 0; k <= 6; k++) { const t = new Date(o.start.getTime() + (o.end - o.start) * k / 6); lab += `<text x="${x(k / 6 * (n - 1))}" y="${H - 6}" text-anchor="middle" class="ax">${o.days ? t.toLocaleDateString([], { weekday: "short" }) : t.getHours() + ":00"}</text>`; }
+  const path = (d, step) => d.map((v, i) => v === null ? "" : (i && d[i - 1] !== null ? (step ? `H${x(i).toFixed(1)}V` : "L") : "M") + (step && i && d[i - 1] !== null ? y(v).toFixed(1) : x(i).toFixed(1) + " " + y(v).toFixed(1))).join("");
+  const body = series.map(s => {
+    const d = path(s.data, o.step);
+    const area = s.area ? `<path d="${d} L${x(n - 1)} ${y(Math.max(lo, 0))} L${x(0)} ${y(Math.max(lo, 0))} Z" fill="${s.color}" opacity=".16"/>` : "";
+    return area + `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+  }).join("");
+  return `<div class="chart" style="height:${H}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${lab}${body}</svg></div>${legend(series)}`;
+}
+function legend(series) { return `<div class="lg">${series.map(s => `<span><b style="color:${s.color}">■</b> ${esc(s.name)}</span>`).join("")}</div>`; }
+function barChart(days, series, o = {}) {
+  const W = o.w || 520, H = o.h || 200, L = 40, R = 12, T = 10, B = 22, n = days.length;
+  if (!n) return `<div class="muted" style="padding:20px">No data yet.</div>`;
+  const hi = Math.max(...series.flatMap(s => s.data.map(v => v || 0)), 1) * 1.1, gw = (W - L - R) / n, bw = gw / (series.length + 1);
+  const y = v => T + (1 - v / hi) * (H - T - B);
+  let g = "";
+  for (let k = 0; k <= 4; k++) { const v = hi * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${v.toFixed(0)}</text>`; }
+  const bars = days.map((d, i) => series.map((s, j) => { const v = s.data[i] || 0; return `<rect x="${L + i * gw + bw / 2 + j * bw}" y="${y(v)}" width="${bw - 1}" height="${H - B - y(v)}" rx="2" fill="${s.color}"><title>${s.name} ${v.toFixed(1)}</title></rect>`; }).join("")
+    + `<text x="${L + i * gw + gw / 2}" y="${H - 6}" text-anchor="middle" class="ax">${d}</text>`).join("");
+  return `<div class="chart" style="height:${H}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${bars}</svg></div>${legend(series)}`;
 }
 
 // ---- SVG pieces ---------------------------------------------------------
@@ -668,6 +860,10 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .evside{padding:18px;display:flex;flex-direction:column;justify-content:center;gap:10px;background:color-mix(in srgb,var(--primary-text-color) 4%,transparent)}
 .evside .evring{max-width:150px}
 @media (max-width:760px){.stage{grid-template-columns:1fr}.carbox{min-height:240px}}
+
+.lg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;opacity:.8;margin-top:4px}
+.stat b small{font-size:12px;font-weight:400;opacity:.6;margin-left:3px}
+.num{width:90px;text-align:right;background:var(--card-background-color);color:inherit;border:1px solid var(--divider-color);border-radius:8px;padding:4px 6px}
 @media (max-width:640px){:host{padding:10px 10px 40px}.big{font-size:24px}.chart{height:200px}.legend{margin-left:0}}
 `;
 customElements.define("cortex-studio", CortexStudio);
