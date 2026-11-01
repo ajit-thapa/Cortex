@@ -223,7 +223,17 @@ class CortexStudio extends HTMLElement {
         <div class="muted" style="margin-top:8px">${esc(e.storage_summary || "")}</div></div>
       <div class="card wide"><h2>Last 24 hours <span class="legend"><b style="color:${C.solar}">■</b> solar <b style="color:${C.home}">■</b> load <b style="color:${C.grid}">■</b> grid <b style="color:${C.batt}">■</b> battery %</span></h2>
         <div id="chart" class="chart"><div class="muted">Loading history…</div></div></div>
-      <div class="card stats" id="stats"></div>
+      <div class="card wide" id="stats"><div class="visgrid">
+        <div class="vcell"><h3>Solar today</h3><div class="sunbar"><div class="sbtrack"><i class="sbfill"></i><u class="sbfc"></u><u class="sblow"></u></div>
+          <div class="sblab"><span>☀ <b id="v-gen">–</b> kWh so far</span><span class="muted" id="v-fc"></span></div></div><div class="vsub" id="v-sun"></div></div>
+        <div class="vcell"><h3>Solar shortfall</h3><svg viewBox="0 0 200 118" class="fuel">
+          <path id="fz-g" fill="none" stroke="#66bb6a" stroke-width="16"/><path id="fz-a" fill="none" stroke="#ffa726" stroke-width="16"/><path id="fz-r" fill="none" stroke="#ef5350" stroke-width="16"/>
+          <g id="needle" style="transform-origin:100px 100px;transform:rotate(-90deg)"><line x1="100" y1="100" x2="100" y2="34" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></g>
+          <circle cx="100" cy="100" r="8" fill="currentColor"/></svg><div class="vsub" id="v-short"></div></div>
+        <div class="vcell"><h3>Next rate change</h3><svg viewBox="0 0 120 120" class="cring"><circle cx="60" cy="60" r="48" fill="none" stroke="currentColor" opacity=".12" stroke-width="10"/>
+          <circle id="cr" cx="60" cy="60" r="48" fill="none" stroke-width="10" stroke-linecap="round" transform="rotate(-90 60 60)" style="transition:stroke-dasharray 1s,stroke .5s"/>
+          <text id="cr-t" x="60" y="62" text-anchor="middle" class="gv" style="font-size:20px"></text><text id="cr-s" x="60" y="80" text-anchor="middle" class="ax" style="font-size:10px"></text></svg><div class="vsub" id="v-next"></div></div>
+      </div></div>
     </section>`;
   }
 
@@ -237,14 +247,39 @@ class CortexStudio extends HTMLElement {
     const flow = root.querySelector("#flow");
     if (flow) flow.innerHTML = flowSvg(f);
     this._battWidgets();
-    const st = root.querySelector("#stats");
-    if (st) st.innerHTML = [
-      ["Solar now", fx(f.pv) + " kW", C.solar], ["Home load", fx(f.load) + " kW", C.home],
-      [f.grid >= 0 ? "Importing" : "Exporting", fx(Math.abs(f.grid)) + " kW", C.grid],
-      ["Solar today", e.pv_today === null ? "–" : fx(e.pv_today, 0) + " kWh · " + e.solar_day, C.solar],
-      ["Shortfall", e.pv_shortfall === null ? "–" : fx(e.pv_shortfall, 1) + " kWh", C.peak],
-      ["Daily charge", "$" + fx(e.daily_charge, 2) + " → " + fx(e.export_to_cover, 2) + " kWh", C.shoulder],
-    ].map(([l, v, c]) => `<div class="stat" style="border-color:${c}"><span class="muted">${l}</span><b>${v}</b></div>`).join("");
+    this._paintVisuals();
+  }
+
+  _paintVisuals() {
+    const r = this._root, q = id => r.querySelector(id); if (!q("#v-gen")) return;
+    const e = this._data.energy, s = this._data.studio || {}, d = this._data;
+    // solar today: generated vs forecast vs low-solar line
+    const gen = this._num(s.day_pv) ?? 0, fc = e.pv_today, low = e.low_solar, mx = Math.max(fc || 0, gen, low || 0, 1) * 1.1;
+    q(".sbfill").style.width = Math.min(gen / mx, 1) * 100 + "%";
+    q(".sbfill").style.background = fc && gen >= fc ? C.shoulder : C.solar;
+    q(".sbfc").style.left = fc === null || fc === undefined ? "-10%" : (fc / mx) * 100 + "%";
+    q(".sblow").style.left = low ? (low / mx) * 100 + "%" : "-10%";
+    q("#v-gen").textContent = fx(gen, 1);
+    q("#v-fc").textContent = fc === null || fc === undefined ? "" : "forecast " + fx(fc, 0) + " kWh";
+    q("#v-sun").innerHTML = `<span style="color:${e.solar_day === "low" ? C.peak : C.shoulder}">${esc(e.solar_day)} day</span> · line = low-solar ${fx(low, 0)} kWh`;
+    // shortfall gauge
+    const lo = -20, hi = 30, v = e.pv_shortfall, pt = (deg, rr = 80) => { const a = (180 - deg) * Math.PI / 180; return [(100 + rr * Math.cos(a)).toFixed(1), (100 - rr * Math.sin(a)).toFixed(1)]; };
+    const arc = (a, b) => { const [x1, y1] = pt(a), [x2, y2] = pt(b); return `M${x1} ${y1} A80 80 0 0 1 ${x2} ${y2}`; };
+    const deg = x => 180 * (x - lo) / (hi - lo);
+    q("#fz-g").setAttribute("d", arc(0, deg(0))); q("#fz-a").setAttribute("d", arc(deg(0), deg(10))); q("#fz-r").setAttribute("d", arc(deg(10), 180));
+    q("#needle").style.transform = `rotate(${-90 + (v === null || v === undefined ? 0 : 180 * (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo))}deg)`;
+    q("#v-short").innerHTML = v === null || v === undefined ? "–" : v <= 0 ? `<b style="color:${C.shoulder}">${fx(-v, 1)} kWh surplus</b> · no top-up needed` : `<b style="color:${v > 10 ? C.peak : C.off_peak}">${fx(v, 1)} kWh short</b> · grid top-up likely`;
+    // countdown ring
+    const now = Date.now(), next = new Date(e.next_change).getTime(), sch = d.schedule || [];
+    let h = d.hour, cur = (sch.find(x => x.hour === h) || {}).import, back = 0;
+    while (back < 24 && (sch.find(x => x.hour === (h + 23) % 24) || {}).import === cur) { h = (h + 23) % 24; back++; }
+    const st = new Date(); st.setHours(h, 0, 0, 0); if (st.getTime() > now) st.setDate(st.getDate() - 1);
+    const frac = Math.max(0, Math.min((now - st.getTime()) / Math.max(next - st.getTime(), 1), 1)), mins = Math.max(Math.round((next - now) / 60000), 0);
+    const c = 2 * Math.PI * 48, col = C[e.next_period] || C.ev;
+    q("#cr").style.stroke = col; q("#cr").style.strokeDasharray = `${c * (1 - frac)} ${c}`;
+    q("#cr-t").textContent = mins >= 60 ? Math.floor(mins / 60) + "h " + (mins % 60) + "m" : mins + "m";
+    q("#cr-s").textContent = "left";
+    q("#v-next").innerHTML = `→ <b style="color:${col}">${esc(e.next_period.replace("_", " "))}</b> at ${new Date(next).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   }
 
   _paintChart() {
@@ -960,6 +995,17 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px}
 .battmeta b{font-size:15px}
 .evside .batt{margin-bottom:4px}
+
+.visgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
+.vcell h3{margin:0 0 10px;font-size:14px;font-weight:600;opacity:.85}
+.vsub{margin-top:8px;font-size:13px;opacity:.85}
+.fuel{width:100%;max-width:240px;display:block;margin:0 auto;color:var(--primary-text-color)} #needle{transition:transform 1s cubic-bezier(.3,1.4,.5,1)}
+.cring{width:130px;display:block;margin:0 auto;color:var(--primary-text-color)}
+.sbtrack{position:relative;height:30px;border-radius:15px;background:var(--divider-color);overflow:visible;margin:18px 0 6px}
+.sbfill{position:absolute;left:0;top:0;bottom:0;border-radius:15px;transition:width 1s,background .5s;box-shadow:0 0 12px #f9a82588}
+.sbfc,.sblow{position:absolute;top:-8px;bottom:-8px;width:3px;border-radius:2px;text-decoration:none;transition:left 1s}
+.sbfc{background:#42a5f5}.sblow{background:#ef5350;opacity:.9}
+.sblab{display:flex;justify-content:space-between;font-size:13px}
 @media (max-width:640px){:host{padding:10px 10px 40px}.big{font-size:24px}.chart{height:200px}.legend{margin-left:0}}
 `;
 customElements.define("cortex-studio", CortexStudio);
