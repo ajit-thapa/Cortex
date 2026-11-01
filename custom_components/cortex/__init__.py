@@ -18,9 +18,8 @@ from .websocket import async_register_websocket
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 PANEL_URL = "cortex"
-STUDIO_URL = "cortex-studio"
 FRONTEND_PATH = f"/{DOMAIN}_static"
-FRONTEND_VERSION = "0.10.1"  # cache-buster for the panel scripts
+FRONTEND_VERSION = "0.11.0"  # cache-buster for the panel scripts
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -66,7 +65,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 from homeassistant.components import frontend
 
                 frontend.async_remove_panel(hass, PANEL_URL)
-                frontend.async_remove_panel(hass, STUDIO_URL)
             except Exception:  # noqa: BLE001 - panel may never have been registered
                 pass
             hass.data.pop(f"{DOMAIN}_panel", None)
@@ -90,20 +88,11 @@ async def _async_register_panel(hass: HomeAssistant) -> None:
         )
         await panel_custom.async_register_panel(
             hass,
-            webcomponent_name="cortex-panel",
+            webcomponent_name="cortex-studio",
             frontend_url_path=PANEL_URL,
-            module_url=f"{FRONTEND_PATH}/cortex-panel.js?v={FRONTEND_VERSION}",
+            module_url=f"{FRONTEND_PATH}/cortex-studio.js?v={FRONTEND_VERSION}",
             sidebar_title="Cortex",
             sidebar_icon="mdi:brain",
-            require_admin=False,
-        )
-        await panel_custom.async_register_panel(
-            hass,
-            webcomponent_name="cortex-studio",
-            frontend_url_path=STUDIO_URL,
-            module_url=f"{FRONTEND_PATH}/cortex-studio.js?v={FRONTEND_VERSION}",
-            sidebar_title="Energy Studio",
-            sidebar_icon="mdi:lightning-bolt-circle",
             require_admin=False,
         )
         hass.data[f"{DOMAIN}_panel"] = True

@@ -58,7 +58,8 @@ function tariffAt(h, r) {
   return { per, imp, fit };
 }
 const dayLabel = (key, long) => long ? key.slice(8) + "/" + key.slice(5, 7) : new Date(key + "T12:00").toLocaleDateString([], { weekday: "short" });
-const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["house", "House"]];
+const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["house", "Home"], ["assistant", "Assistant"]];
+const CAT_ICON = { fact: "📌", preference: "⭐", person: "👤", place: "📍", routine: "🔁", note: "📝" };
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fx = (v, n = 1) => (v === null || v === undefined || Number.isNaN(v) ? "–" : Number(v).toFixed(n));
@@ -68,6 +69,7 @@ class CortexStudio extends HTMLElement {
     super();
     try { this._tab = localStorage.getItem("cortex-studio-tab") || "now"; } catch (e) { this._tab = "now"; }
     if (this._tab === "history") this._tab = "analytics";
+    if (!TABS.some(t => t[0] === this._tab)) this._tab = "now";
     this._series = null;
     this._seriesAt = 0;
   }
@@ -102,6 +104,8 @@ class CortexStudio extends HTMLElement {
     }
     const a = this._root.activeElement;
     if (a && (a.tagName === "INPUT" || a.tagName === "SELECT")) return;
+    const mt = this._root.querySelector("#mtext");
+    if (this._tab === "assistant" && mt && mt.value) return;
     this._render();
     if (this._tab === "now" && Date.now() - this._seriesAt > 300000) this._loadSeries();
     if (this._tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
@@ -175,7 +179,7 @@ class CortexStudio extends HTMLElement {
   _build() {
     this._root = this.attachShadow({ mode: "open" });
     this._root.innerHTML = `<style>${CSS}</style>
-      <header><h1>⚡ Energy Studio</h1><nav id="tabs"></nav><span id="clock" class="muted"></span></header>
+      <header><h1>🧠 Cortex</h1><nav id="tabs"></nav><span id="clock" class="muted"></span></header>
       <main id="view"></main>`;
     const nav = this._root.querySelector("#tabs");
     nav.innerHTML = TABS.map(([k, l]) => `<button data-tab="${k}">${l}</button>`).join("");
@@ -196,8 +200,8 @@ class CortexStudio extends HTMLElement {
     this._root.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === this._tab));
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
-    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => { this._battWidgets(); this._paintMore("battery"); }, analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, house: () => this._wireHouse() })[this._tab]();
+    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), house: () => this._viewHouse(), assistant: () => this._viewAssistant() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => { this._battWidgets(); this._paintMore("battery"); }, analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, house: () => this._wireHouse(), assistant: () => this._wireAssistant() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -221,13 +225,7 @@ class CortexStudio extends HTMLElement {
         <div class="ticks"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
       </div>
       <div class="card flow"><h2>Power flow</h2><div id="flow"></div></div>
-      <div class="card wide"><h2>Energy Storage</h2>
-        <div class="estore"><div class="escene">${sceneHTML()}</div>
-          <div class="epanels"><div class="esub"><div data-bhost="house"></div></div><div class="esub"><div data-bhost="ev"></div></div></div></div>
-        <div class="muted" style="margin-top:8px">${esc(e.storage_summary || "")}</div></div>
-      <div class="card wide"><h2>Last 24 hours <span class="legend"><b style="color:${C.solar}">■</b> solar <b style="color:${C.home}">■</b> load <b style="color:${C.grid}">■</b> grid <b style="color:${C.batt}">■</b> battery %</span></h2>
-        <div id="chart" class="chart"><div class="muted">Loading history…</div></div></div>
-      <div class="card wide" id="stats"><div class="visgrid">
+      <div class="card" id="stats"><div class="visgrid">
         <div class="vcell"><h3>Solar today</h3><div class="sunbar"><div class="sbtrack"><i class="sbfill"></i><u class="sbfc"></u><u class="sblow"></u></div>
           <div class="sblab"><span>☀ <b id="v-gen">–</b> kWh so far</span><span class="muted" id="v-fc"></span></div></div><div class="vsub" id="v-sun"></div></div>
         <div class="vcell"><h3>Solar shortfall</h3><svg viewBox="0 0 200 118" class="fuel">
@@ -238,6 +236,11 @@ class CortexStudio extends HTMLElement {
           <circle id="cr" cx="60" cy="60" r="48" fill="none" stroke-width="10" stroke-linecap="round" transform="rotate(-90 60 60)" style="transition:stroke-dasharray 1s,stroke .5s"/>
           <text id="cr-t" x="60" y="62" text-anchor="middle" class="gv" style="font-size:20px"></text><text id="cr-s" x="60" y="80" text-anchor="middle" class="ax" style="font-size:10px"></text></svg><div class="vsub" id="v-next"></div></div>
       </div></div>
+      <div class="card wide"><h2>Energy Storage</h2>
+        <div class="estore"><div class="esub"><div data-bhost="house"></div></div><div class="esub"><div data-bhost="ev"></div></div></div>
+        <div class="muted" style="margin-top:8px">${esc(e.storage_summary || "")}</div></div>
+      <div class="card wide"><h2>Last 24 hours <span class="legend"><b style="color:${C.solar}">■</b> solar <b style="color:${C.home}">■</b> load <b style="color:${C.grid}">■</b> grid <b style="color:${C.batt}">■</b> battery %</span></h2>
+        <div id="chart" class="chart"><div class="muted">Loading history…</div></div></div>
     </section>`;
   }
 
@@ -512,12 +515,6 @@ class CortexStudio extends HTMLElement {
       battSet(ev, { pct: soc, charging: chg || kw > 0.05, plugged: !!this._data.energy.ev_plugged || (this._hass.states[EV.plug] || {}).state === "on",
         sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (chg || kw > 0.05 ? "⚡ charging " + fx(kw) + " kW" : (this._data.energy.ev_plugged ? "plugged in" : "unplugged")),
         marks: [{ pct: this._tab === "ev" && this._evTarget !== undefined ? this._evTarget : this._num("input_number.byd_target_soc"), color: C.home, label: "Target" }] });
-    }
-    const scene = r.querySelector(".escene");
-    if (scene) {
-      const bsoc = this._num(s.soc) ?? this._num(N + "combined_battery_soc") ?? this._num(N + "battery_soc"), esoc = this._num(EV.soc) ?? this._num(s.ev_soc);
-      const chg = this._hass.states[EV.charging] && this._hass.states[EV.charging].state === "on";
-      sceneSet(scene, { f, bsoc, esoc, charging: chg || f.ev > 0.05, plugged: !!this._data.energy.ev_plugged || (this._hass.states[EV.plug] || {}).state === "on" });
     }
   }
 
@@ -872,28 +869,84 @@ class CortexStudio extends HTMLElement {
     if (x) x.onclick = () => act("autopilot_export");
   }
 
-  // ---- HOUSE ----------------------------------------------------------
+  // ---- HOME -----------------------------------------------------------
+  _list(arr, fn, empty) { return arr.length ? arr.map(fn).join("") : `<div class="muted">${empty}</div>`; }
   _viewHouse() {
-    const d = this._data, sec = d.security || { ok: true, issues: [] }, v = d.visitors || { log: [], parcels: 0, today: 0 };
-    const list = (arr, fn, empty) => arr.length ? arr.map(fn).join("") : `<div class="muted">${empty}</div>`;
+    const d = this._data, sec = d.security || { ok: true, issues: [] }, v = d.visitors || { log: [], parcels: 0, today: 0, spots: {}, cameras: [] };
+    const wk = d.week || {}, hm = t => t.slice(5, 16).replace("T", " ");
+    const cams = (v.cameras || []).map(c => `<div class="row"><span class="muted">${esc(c)}</span><span><input data-spot="${esc(c)}" value="${esc((v.spots || {})[c] || "")}" placeholder="e.g. front porch" size="14"> <button class="ghost" data-savespot="${esc(c)}">Save</button></span></div>`).join("");
     return `<section class="grid">
       <div class="card"><h2>Security</h2>${sec.ok ? `<div class="big ok">All shut and locked</div>` : sec.issues.map(i => `<div class="row bad">${esc(i)}</div>`).join("")}
-        <button id="seccheck">Check now</button></div>
-      <div class="card"><h2>Visitors today: ${v.today} · parcels: ${v.parcels}</h2>
-        ${list(v.log.slice(0, 5), x => `<div class="row"><span>${esc(x.kind)}: ${esc(x.text)}</span><span class="muted">${x.time.slice(11, 16)}</span></div>`, "No visitors yet.")}</div>
-      <div class="card"><h2>House health</h2>${list(d.health, h => `<div class="row">${esc(h)}</div>`, "All clear")}</div>
-      <div class="card"><h2>Suggestions</h2>${list(d.suggestions || [], x => `<div class="row"><span>💡 ${esc(x.text)}</span><button data-acc="${x.id}">Automate</button></div>`, "None yet.")}</div>
-      <div class="card"><h2>Routines</h2>${list(d.routines || [], r => `<div class="row"><span>${esc(r.name)}</span><button data-run="${esc(r.name)}">Run</button></div>`, "No routines.")}</div>
+        <div class="row"><span class="muted">Read-only sweep</span><button id="seccheck">Check now</button></div><div class="muted" id="hmsg"></div></div>
+      <div class="card"><h2>Visitors today: ${v.today} · parcels waiting: ${v.parcels}</h2>
+        ${this._list(v.log.slice(0, 6), x => `<div class="row"><span>${esc(x.kind)}: ${esc(x.text)}</span><span class="muted">${hm(x.time)}</span></div>`, "No visitors yet.")}
+        ${v.parcels ? `<div class="row"><span></span><button id="collected">Parcels collected</button></div>` : ""}
+        ${cams ? `<h2 style="margin-top:12px">Camera spots</h2>${cams}` : ""}</div>
+      <div class="card"><h2>House health</h2>${this._list(d.health, h => `<div class="row">${esc(h)}</div>`, `<span class="ok">All clear</span>`)}
+        <div class="row"><span class="muted">Speech ${d.hushed ? "hushed" : "active"}</span><button id="hush">${d.hushed ? "Unhush" : "Hush 1h"}</button></div></div>
       ${this._houseExtras()}
-      <div class="card wide"><h2>Timeline</h2>${list((d.timeline || []).slice(0, 14), x => `<div class="row"><span>${esc(x.text)}</span><span class="muted">${esc(x.kind)} · ${x.time.slice(5, 16).replace("T", " ")}</span></div>`, "No events yet.")}</div>
+      <div class="card"><h2>This week</h2>${this._list(Object.keys(wk).sort(), k => `<div class="row"><span class="muted">${esc(k.replace(/_/g, " "))}</span><b>${Number(wk[k]).toFixed(Number.isInteger(wk[k]) ? 0 : 1)}</b></div>`, "Nothing recorded yet.")}</div>
+      <div class="card wide"><h2>Timeline</h2>${this._list((d.timeline || []).slice(0, 14), x => `<div class="row"><span>${esc(x.text)}</span><span class="muted">${esc(x.kind)} · ${hm(x.time)}</span></div>`, "No events yet.")}</div>
     </section>`;
   }
+  async _act(msg, note) {
+    try { const r = await this._hass.callWS({ type: "cortex/action", ...msg }); if (note) this._note = note(r.result); }
+    catch (e) { this._note = "Failed: " + (e.message || e.code); }
+    await this._load();
+  }
+  async _ws(msg) { try { await this._hass.callWS(msg); } catch (e) { this._note = "Failed: " + (e.message || e.code); } await this._load(); }
+  _flash() { const m = this._root.querySelector("#hmsg"); if (m && this._note) { m.textContent = this._note; } this._note = null; }
   _wireHouse() {
-    const q = s => this._root.querySelectorAll(s);
-    const act = async msg => { try { await this._hass.callWS({ type: "cortex/action", ...msg }); } catch (e) { /* shown on next load */ } this._load(); };
-    q("[data-acc]").forEach(b => b.onclick = () => act({ action: "accept_suggestion", id: b.dataset.acc }));
-    q("[data-run]").forEach(b => b.onclick = () => act({ action: "run_routine", id: b.dataset.run }));
-    const c = this._root.querySelector("#seccheck"); if (c) c.onclick = () => act({ action: "security_check" });
+    const r = this._root, click = (id, fn) => { const el = r.querySelector(id); if (el) el.onclick = fn; };
+    click("#seccheck", () => this._act({ action: "security_check" }, x => x.text));
+    click("#collected", () => this._act({ action: "parcels_collected" }));
+    click("#hush", () => this._ws({ type: "cortex/hush", minutes: this._data.hushed ? 0 : 60 }));
+    r.querySelectorAll("[data-savespot]").forEach(b => b.onclick = () => {
+      const i = r.querySelector(`[data-spot="${b.dataset.savespot}"]`);
+      this._act({ action: "set_spot", camera: b.dataset.savespot, spot: i.value.trim() }, () => "Saved");
+    });
+    this._flash();
+  }
+
+  // ---- ASSISTANT (memory, reminders, routines, tools) -------------------
+  _viewAssistant() {
+    const d = this._data, hm = t => t.slice(5, 16).replace("T", " ");
+    const mem = this._list(d.memories.slice().reverse(), m => `<div class="mem"><span>${CAT_ICON[m.category] || "📌"}</span><span class="t">${esc(m.text)}</span><button class="ghost" data-del="${m.id}">✕</button></div>`, "Nothing remembered yet.");
+    const rem = this._list(d.reminders, r => `<div class="row"><span>${esc(r.message)}</span><span class="muted">${new Date(r.at).toLocaleString([], { hour: "2-digit", minute: "2-digit", weekday: "short" })} <button class="ghost" data-cancel="reminder:${r.id}">✕</button></span></div>`, "No reminders.");
+    const wat = this._list(d.watches, w => `<div class="row"><span>${esc(w.entity_id)}${w.to_state ? " → " + esc(w.to_state) : ""}</span><button class="ghost" data-cancel="watch:${w.id}">✕</button></div>`, "No watches.");
+    const sug = this._list(d.suggestions || [], x => `<div class="mem"><span>💡</span><span class="t">${esc(x.text)}</span><button data-acc="${x.id}">Automate</button><button class="ghost" data-dis="${x.id}">✕</button></div>`, "No suggestions yet. Cortex learns from the entities you list under Configure.");
+    const rout = this._list(d.routines || [], r => `<div class="row"><span>${esc(r.name)} <span class="muted">${r.schedule ? "at " + esc(r.schedule.at) + " " + esc(r.schedule.days) : r.on_state ? "when " + esc(r.on_state.entity_id) + " is " + esc(r.on_state.to) : "on demand"}</span></span>
+      <span><button data-run="${esc(r.name)}">Run</button> <button class="ghost" data-delr="${esc(r.name)}">✕</button></span></div>`, "No routines. Ask the assistant to make one, or accept a suggestion.");
+    const speech = this._list((d.speech || []).slice(0, 8), s => `<div class="row"><span>${esc(s.text)}</span><span class="muted">${s.time.slice(11, 16)} ${s.spoken ? "🔊" : "🔇 " + esc(s.reason || "")}</span></div>`, "Nothing said yet.");
+    return `<section class="grid">
+      <div class="card wide"><h2>Memory (${d.memories.length})</h2>
+        <div class="row"><input id="mtext" placeholder="Something worth remembering" style="flex:1"><select id="mcat">${d.categories.map(c => `<option>${esc(c)}</option>`).join("")}</select><button id="madd">Add</button></div>${mem}</div>
+      <div class="card"><h2>Reminders</h2>${rem}<h2 style="margin-top:12px">Watches</h2>${wat}</div>
+      <div class="card"><h2>Routines</h2>${rout}</div>
+      <div class="card wide"><h2>Suggestions</h2>${sug}</div>
+      <div class="card"><h2>Tools</h2>
+        <div class="row"><span>Backup now (${(d.backups || []).length} saved)</span><button id="backup">Back up</button></div>
+        <div class="row"><span>Weekly report</span><button id="weekly">Say it now</button></div>
+        <div class="row"><span>Speech ${d.hushed ? "hushed" : "active"}</span><button id="hush">${d.hushed ? "Unhush" : "Hush 1h"}</button></div>
+        <div class="muted" id="hmsg"></div></div>
+      <div class="card"><h2>Recent speech</h2>${speech}</div>
+    </section>`;
+  }
+  _wireAssistant() {
+    const r = this._root, click = (id, fn) => { const el = r.querySelector(id); if (el) el.onclick = fn; };
+    r.querySelectorAll("[data-del]").forEach(b => b.onclick = () => this._ws({ type: "cortex/memory_delete", id: b.dataset.del }));
+    r.querySelectorAll("[data-cancel]").forEach(b => b.onclick = () => { const [kind, id] = b.dataset.cancel.split(":"); this._ws({ type: "cortex/cancel", kind, id }); });
+    r.querySelectorAll("[data-acc]").forEach(b => b.onclick = () => this._act({ action: "accept_suggestion", id: b.dataset.acc }, () => "Routine created"));
+    r.querySelectorAll("[data-dis]").forEach(b => b.onclick = () => this._act({ action: "dismiss_suggestion", id: b.dataset.dis }));
+    r.querySelectorAll("[data-run]").forEach(b => b.onclick = () => this._act({ action: "run_routine", id: b.dataset.run }, () => "Ran " + b.dataset.run));
+    r.querySelectorAll("[data-delr]").forEach(b => b.onclick = () => this._act({ action: "delete_routine", id: b.dataset.delr }));
+    click("#backup", () => this._act({ action: "backup" }, x => "Saved " + String(x).split("/").pop()));
+    click("#weekly", () => this._act({ action: "weekly_report" }, () => "Weekly report sent"));
+    click("#hush", () => this._ws({ type: "cortex/hush", minutes: this._data.hushed ? 0 : 60 }));
+    const add = () => { const t = r.querySelector("#mtext").value.trim(); if (t) this._ws({ type: "cortex/memory_add", text: t, category: r.querySelector("#mcat").value }); };
+    click("#madd", add);
+    const mt = r.querySelector("#mtext"); if (mt) mt.onkeydown = e => { if (e.key === "Enter") add(); };
+    this._flash();
   }
 }
 
@@ -978,73 +1031,11 @@ function towerSvg(k) {
     <g class="tflow tup">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 200 l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
     <g class="bmarks"></g></svg>`;
 }
-// ---- house scene: live badges and animated flow lines over the illustration ----------
-// Flow lines trace the wires baked into the artwork (1024x730). Line speed follows the power
-// (more kW = faster), direction follows the sign, idle lines fade out.
-const SC = { img: "/cortex_static/home-scene.webp",
-  paths: { solar: "M618 180c23 6 35 11 40 32l0 188", grid: "M69 727l640-120c72-14 78-20 38-33c-59-23-89-23-86-66l0-50",
-    battery: "M642 432l-42 6", home: "M673 426l86-14", vehicle: "M652 458l0 55c0 15-15 14-81 26c-59 11-75 12-101 2l-120-60" },
-  col: { solar: "#ffd54f", grid: "#64b5f6", battery: "#4dd0a0", home: "#ff9d4d", vehicle: "#ef5350" },
-  nodes: { solar: [620, 182], battery: [600, 438], home: [759, 412], vehicle: [350, 481] } };
-function sceneHTML() {
-  const paths = Object.entries(SC.paths).map(([k, d]) => `<path class="sft" d="${d}"/>`
-    + `<path class="sf sf-${k}" d="${d}" style="--c:${SC.col[k]}"/><path class="sf sfc sf-${k}" d="${d}"/>`).join("");
-  const nodes = Object.entries(SC.nodes).map(([k, [x, y]]) => `<g class="sn sn-${k}" transform="translate(${x} ${y})"><circle class="snr" r="14" style="stroke:${SC.col[k]}"/><circle r="6" style="fill:${SC.col[k]}"/></g>`).join("");
-  const tower = towerSvg("sc").replace('<svg viewBox="0 0 190 240" class="battsvg tower">', '<svg class="stower" x="523" y="381" width="96" height="121" viewBox="0 0 190 240" overflow="visible" style="color:#cfd8dc">');
-  const poly = "378,38 668,130 506,268 238,160";
-  return `<img src="${SC.img}" alt="Home energy"><svg class="xov" viewBox="0 0 1024 730" preserveAspectRatio="xMidYMax meet">
-    <defs><filter id="sbl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="12"/></filter>
-      <filter id="sfg" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <clipPath id="spc"><polygon points="${poly}"/></clipPath>
-      <linearGradient id="ssg" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
-    <rect class="swin" x="758" y="225" width="135" height="243" rx="8" filter="url(#sbl)"/>
-    <polygon class="spv" points="${poly}"/>
-    <g clip-path="url(#spc)"><rect class="ssheen" x="150" y="0" width="120" height="330" fill="url(#ssg)" transform="skewX(-28)"/></g>
-    <ellipse class="scar" cx="285" cy="470" rx="95" ry="66" filter="url(#sbl)"/>
-    <rect class="sbglow" x="520" y="378" width="104" height="128" rx="16" filter="url(#sbl)"/>
-    ${tower}<circle class="shub" cx="658" cy="436" r="16"/>
-    ${paths.replace(/<path class="sf /g, '<path filter="url(#sfg)" class="sf ')}${nodes}<g class="sbadges"></g></svg>`;
-}
 function towerLevel(el, p, col) {
   const h = 206 * p / 100, y = 220 - h;
   el.querySelectorAll(".twv,.tfl").forEach(r => { r.style.fill = col; });
   const tf = el.querySelector(".tfl"); tf.style.y = y + "px"; tf.style.height = h + "px";
   el.querySelector(".twrap").style.transform = `translateY(${y + 2}px)`;
-}
-function sceneSet(root, o) {
-  const f = o.f, set = (sel, fn) => root.querySelectorAll(sel).forEach(fn), bp = o.bsoc === null || o.bsoc === undefined ? null : Math.max(0, Math.min(o.bsoc, 100));
-  const bcol = levelColor(bp), ecol = levelColor(o.esoc ?? null);
-  set(".stower", e => { e.style.setProperty("--bc", bcol); e.classList.toggle("chg", f.batt > 0.05); e.classList.toggle("dis", f.batt < -0.05); towerLevel(e, bp ?? 0, bcol); });
-  set(".sbglow", e => { e.style.fill = bcol; });
-  set(".scar", e => { e.style.fill = o.charging ? C.shoulder : C.off_peak; });
-  set(".spv", e => { e.style.opacity = Math.min(f.pv / 6, 1) * 0.5; });
-  root.classList.toggle("bchg", f.batt > 0.05); root.classList.toggle("bdis", f.batt < -0.05);
-  root.classList.toggle("scplug", !!(o.plugged || o.charging)); root.classList.toggle("scchg", !!o.charging);
-  // seconds per 96px of travel: fast at high power, slow at low; width grows with power
-  const flow = (k, kw, rev) => {
-    const a = Math.abs(kw), on = a > 0.05;
-    set(".sf-" + k, e => { e.style.opacity = on ? 1 : 0; e.style.setProperty("--speed", Math.max(0.35, Math.min(3, 4 / (1 + a))).toFixed(2));
-      e.style.strokeWidth = e.classList.contains("sfc") ? 2 : (5 + Math.min(a, 8) * 0.7).toFixed(1); e.classList.toggle("rev", !!rev); });
-    set(".sn-" + k, e => { e.style.opacity = on ? 1 : 0.25; });
-  };
-  flow("solar", f.pv, false); flow("battery", f.batt, f.batt < 0); flow("vehicle", f.ev, false); flow("home", f.home, false); flow("grid", f.grid, f.grid < 0);
-  root.classList.toggle("bpv", f.pv > 0.05); root.classList.toggle("bany", f.pv + Math.abs(f.batt) + f.ev + f.home + Math.abs(f.grid) > 0.1);
-  set(".swin", e => { e.style.opacity = 0.12 + Math.min(f.home / 4, 1) * 0.4; });
-  // glass cards with a leader line to the thing they describe
-  const card = (x, y, label, val, sub, col, to) => {
-    const w = Math.max(label.length * 9, val.length * 15, (sub || "").length * 8) + 40, h = sub ? 76 : 58, l = x - w / 2, t = y - h / 2;
-    return `<line class="sld" x1="${x}" y1="${y + (to[1] > y ? h / 2 : -h / 2)}" x2="${to[0]}" y2="${to[1]}" stroke="${col}"/>`
-      + `<g transform="translate(${l} ${t})"><rect width="${w}" height="${h}" rx="14" class="scd"/><rect width="5" height="${h - 20}" x="0" y="10" rx="2.5" fill="${col}"/>`
-      + `<text x="20" y="23" class="scl">${esc(label)}</text><text x="20" y="${sub ? 49 : 46}" class="scv">${esc(val)}</text>${sub ? `<text x="20" y="66" class="scs">${esc(sub)}</text>` : ""}</g>`;
-  };
-  const pc = v => (v === null || v === undefined ? "–" : Math.round(v) + "%");
-  const arrow = f.batt > 0.05 ? " ▼" : f.batt < -0.05 ? " ▲" : "";
-  set(".sbadges", e => { e.innerHTML =
-      card(150, 84, "SOLAR", fx(f.pv) + " kW", f.pv > 0.05 ? "generating" : "idle", C.solar, [335, 110])
-    + card(895, 120, "HOME LOAD", fx(f.home) + " kW", "", C.home, [850, 228])
-    + card(571, 330, "HOME ESS", pc(bp) + arrow, f.batt > 0.05 ? "charging " + fx(f.batt) + " kW" : f.batt < -0.05 ? "discharging " + fx(-f.batt) + " kW" : "idle", bcol, [571, 378])
-    + card(255, 316, "BYD SEALION 7", pc(o.esoc) + (o.charging ? " ⚡" : ""), o.charging ? "charging " + fx(f.ev) + " kW" : o.plugged ? "plugged in" : "", ecol, [285, 410])
-    + card(220, 640, "GRID", fx(Math.abs(f.grid)) + " kW", Math.abs(f.grid) < 0.05 ? "idle" : f.grid > 0 ? "importing" : "exporting", C.grid, [225, 697]); });
 }
 // Battery % chip and plug badge laid over the BYD photo
 function carOverlay() {
@@ -1206,6 +1197,10 @@ nav button.on{background:var(--primary-color);color:var(--text-primary-color,#ff
 .seg button.on{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}
 button{cursor:pointer;border:0;border-radius:8px;padding:6px 12px;background:var(--primary-color);color:var(--text-primary-color,#fff)}
 .ok{color:#66bb6a} .bad{color:#ef5350}
+button.ghost{background:transparent;color:var(--secondary-text-color);padding:2px 8px}
+input[type=text],input:not([type]),select{padding:6px;border-radius:6px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+.mem{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--divider-color);align-items:center}.mem .t{flex:1}
+nav{max-width:100%;overflow-x:auto;scrollbar-width:none}nav button{white-space:nowrap}
 
 .evring{width:100%;max-width:220px;display:block;margin:0 auto 10px;color:var(--primary-text-color)} .evpct{font-size:34px;font-weight:700;fill:currentColor}
 .evring.pulse circle:nth-of-type(2){animation:glow 2s ease-in-out infinite} @keyframes glow{50%{opacity:.55}}
@@ -1265,22 +1260,9 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
   background:linear-gradient(105deg,var(--bc) 0 40%,color-mix(in srgb,var(--bc) 55%,#fff) 50%,var(--bc) 60% 100%);background-size:250% 100%;transition:clip-path 1s ease}
 .carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
 .chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
-.escene{position:relative}.escene img{display:block;width:100%;height:auto}
-.xov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-.estore{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:center}.epanels{display:grid;gap:14px}
+.estore{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .esub{background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);border-radius:14px;padding:14px}
-@media (max-width:900px){.estore{grid-template-columns:1fr}}
-.spv{fill:#ffb300;opacity:0;transition:opacity 1s;mix-blend-mode:screen}.sbglow,.scar{opacity:0}.swin{fill:#ffd180;opacity:.15;transition:opacity 1s}
-.ssheen{opacity:0}.bpv .ssheen{opacity:1;animation:ssw 3.2s ease-in-out infinite}@keyframes ssw{from{transform:skewX(-28deg) translateX(0)}to{transform:skewX(-28deg) translateX(620px)}}
-.sft{fill:none;stroke:#fff;stroke-opacity:.1;stroke-width:6;stroke-linecap:round}
-.sf{fill:none;stroke:var(--c);stroke-linecap:round;stroke-dasharray:10 22;opacity:0;animation:sdash calc(var(--speed,2) * 1s) linear infinite;transition:opacity .5s}.sf.rev{animation-direction:reverse}
-.sfc{stroke:#fff;stroke-opacity:.75;stroke-dasharray:3 29;stroke-width:2}
-@keyframes sdash{to{stroke-dashoffset:-96}}
-.sn{transition:opacity .6s}.sn circle:first-child{fill:none;stroke-width:2;opacity:.6;animation:snp 2s ease-out infinite;transform-box:fill-box;transform-origin:center}@keyframes snp{from{transform:scale(.5);opacity:.9}to{transform:scale(1.5);opacity:0}}
-.shub{fill:none;stroke:#fff;stroke-opacity:.0;stroke-width:3}.bany .shub{stroke-opacity:.45;animation:snp 2.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
-.scd{fill:rgba(14,18,26,.84);stroke:rgba(255,255,255,.14)}.scl{fill:#9aa7b4;font-size:13px;font-weight:600;letter-spacing:.08em}.scv{fill:#fff;font-size:26px;font-weight:700}.scs{fill:#b8c2cc;font-size:14px}
-.sld{stroke-width:2;stroke-dasharray:3 5;opacity:.7}
-.bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.scplug .scar{opacity:.32}.scchg .scar{animation:xgl 1.6s ease-in-out infinite}
+@media (max-width:760px){.estore{grid-template-columns:1fr}}
 @keyframes xgl{0%,100%{opacity:.15}50%{opacity:.7}}
 .carpic{position:relative;display:inline-block;max-width:88%;z-index:1}.carpic img{max-width:100%!important}
 .csoc,.cplug{position:absolute;display:flex;white-space:nowrap;align-items:center;gap:7px;background:rgba(14,18,26,.84);color:#fff;border-radius:999px;padding:5px 12px;font-weight:700;border:1px solid rgba(255,255,255,.2);z-index:3;box-shadow:0 4px 14px #0006}
@@ -1304,6 +1286,7 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .battmeta b{font-size:15px}.bbig{font-size:34px;font-weight:700;line-height:1.1;color:var(--bc)}
 .evside .batt{margin-bottom:4px}
 
+@media (min-width:1000px){#stats{grid-column:span 2}}
 .visgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
 .vcell h3{margin:0 0 10px;font-size:14px;font-weight:600;opacity:.85}
 .vsub{margin-top:8px;font-size:13px;opacity:.85}
