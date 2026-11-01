@@ -5,7 +5,21 @@ const C = {
   peak: "#ef5350", shoulder: "#66bb6a", off_peak: "#ffa726",
 };
 const NS = "http://www.w3.org/2000/svg";
-const TABS = [["now", "Now"], ["plan", "Plan"], ["history", "History"], ["house", "House"]];
+const EV = {
+  soc: "sensor.byd_sealion_7_battery_level", power: "sensor.byd_sealion_7_battery_power",
+  plug: "binary_sensor.byd_sealion_7_plug", charging: "binary_sensor.byd_sealion_7_charging",
+  online: "binary_sensor.byd_sealion_7_online", remain: "sensor.byd_sealion_7_charge_remaining_time",
+  locked: "binary_sensor.byd_sealion_7_locked", loc: "device_tracker.byd_sealion_7_location",
+  full: "switch.byd_sealion_7_charge_to_full", sched: "switch.byd_sealion_7_schedule_enabled",
+  daily: "switch.byd_sealion_7_repeat_daily", start: "time.byd_sealion_7_start_time", end: "time.byd_sealion_7_end_time",
+  go: "button.byd_sealion_7_start_charging", poll: "button.byd_sealion_7_force_poll",
+  cap: "input_number.system_ev_battery_capacity", kw: "input_number.system_ev_charger_power",
+  wcStatus: "sensor.tesla_wall_connector_status", wcPower: "sensor.tesla_wall_connector_ev_charger",
+  wcSession: "sensor.tesla_wall_connector_session_energy", wcV: "sensor.tesla_wall_connector_grid_voltage",
+  wcA: ["sensor.tesla_wall_connector_phase_a_current", "sensor.tesla_wall_connector_phase_b_current", "sensor.tesla_wall_connector_phase_c_current"],
+  wcT: [["Handle", "sensor.tesla_wall_connector_handle_temperature"], ["MCU", "sensor.tesla_wall_connector_mcu_temperature"], ["PCB", "sensor.tesla_wall_connector_pcb_temperature"]],
+};
+const TABS = [["now", "Now"], ["ev", "EV"], ["plan", "Plan"], ["history", "History"], ["house", "House"]];
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fx = (v, n = 1) => (v === null || v === undefined || Number.isNaN(v) ? "–" : Number(v).toFixed(n));
@@ -29,6 +43,9 @@ class CortexStudio extends HTMLElement {
     } else if (this._data && this._tab === "now" && Date.now() - (this._lastPaint || 0) > 1500) {
       this._lastPaint = Date.now();
       this._paintLive();
+    } else if (this._data && this._tab === "ev" && Date.now() - (this._lastPaint || 0) > 1500) {
+      this._lastPaint = Date.now();
+      this._paintEv();
     }
   }
   set narrow(v) { this._narrow = v; }
@@ -47,6 +64,7 @@ class CortexStudio extends HTMLElement {
     this._render();
     if (this._tab === "now" && Date.now() - this._seriesAt > 300000) this._loadSeries();
     if (this._tab === "history" && !this._daily) this._loadDaily();
+    if (this._tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
   }
 
   _kw(id, invert = false) {
@@ -141,6 +159,7 @@ class CortexStudio extends HTMLElement {
     try { localStorage.setItem("cortex-studio-tab", tab); } catch (e) { /* ignore */ }
     this._render();
     if (tab === "now" && !this._series) this._loadSeries();
+    if (tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
     if (tab === "history" && !this._daily) this._loadDaily();
   }
 
@@ -149,8 +168,8 @@ class CortexStudio extends HTMLElement {
     this._root.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === this._tab));
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
-    view.innerHTML = ({ now: () => this._viewNow(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, plan: () => this._wirePlan(), history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
+    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, plan: () => this._wirePlan(), history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -241,6 +260,173 @@ class CortexStudio extends HTMLElement {
       ${grid}${hrs}<line x1="${L}" x2="${W - R}" y1="${yP(0)}" y2="${yP(0)}" stroke="currentColor" opacity=".3"/>
       ${area(s.pv)}${line(s.pv, yP, C.solar, 1.4)}${line(s.load, yP, C.home, 2)}${line(s.grid, yP, C.grid, 1.4, "4 3")}${line(s.soc, ySoc, C.batt, 2)}
       <line x1="${nowx}" x2="${nowx}" y1="${T}" y2="${H - B}" stroke="currentColor" opacity=".3"/></svg>`;
+  }
+
+  // ---- EV -------------------------------------------------------------
+  async _loadEv() {
+    this._evAt = Date.now();
+    const end = new Date(), start = new Date(end.getTime() - 24 * 3600 * 1000);
+    try {
+      const res = await this._hass.callWS({
+        type: "history/history_during_period", start_time: start.toISOString(), end_time: end.toISOString(),
+        entity_ids: [EV.soc, EV.power], minimal_response: true, no_attributes: true, significant_changes_only: false,
+      });
+      const N = 144, step = (end - start) / N;
+      const rs = id => {
+        const rows = res[id] || [], out = new Array(N).fill(null); let j = 0, last = null;
+        for (let i = 0; i < N; i++) {
+          const t = start.getTime() + i * step;
+          while (j < rows.length && (rows[j].lu ?? rows[j].lc) * 1000 <= t) { const v = parseFloat(rows[j].s); if (!Number.isNaN(v)) last = v; j++; }
+          out[i] = last;
+        }
+        return out;
+      };
+      this._evSeries = { start, end, soc: rs(EV.soc), power: rs(EV.power) };
+      if (this._tab === "ev") this._paintEv();
+    } catch (e) { /* optional */ }
+  }
+
+  _evPlan() {
+    const d = this._data, e = d.energy, sch = d.schedule || [];
+    const soc = this._num(EV.soc) ?? 0, cap = this._num(EV.cap) ?? 82.5, kw = this._num(EV.kw) ?? 7.4;
+    const target = this._evTarget ?? 80;
+    const need = Math.max(target - soc, 0) * cap / 100;
+    const f = this._flows(), surplus = Math.max(f.pv - f.home - Math.max(f.batt, 0), 0);
+    const cheapest = sch.length ? Math.min(...sch.map(r => r.import)) : e.import_rate;
+    const cheapHours = sch.filter(r => r.import === cheapest).map(r => r.hour);
+    const now = e.import_rate;
+    return { soc, cap, kw, target, need, hours: need / kw, now, cheapest, cheapHours,
+      costNow: need * now / 100, costCheap: need * cheapest / 100, surplus, cover: Math.min(surplus / kw, 1) };
+  }
+
+  _viewEv() {
+    const wcA = EV.wcA.map((id, i) => `<div class="phase"><span>${"ABC"[i]}</span><div><i data-a="${i}"></i></div><b data-av="${i}">–</b></div>`).join("");
+    const temps = EV.wcT.map(([n], i) => `<div class="phase"><span>${n}</span><div><i data-t="${i}"></i></div><b data-tv="${i}">–</b></div>`).join("");
+    return `<section class="grid">
+      <div class="card evhero"><h2>BYD Sealion 7 <span id="ev-state" class="pill"></span></h2>
+        <div id="ev-ring"></div>
+        <div class="stats" id="ev-stats"></div></div>
+      <div class="card"><h2>Charge planner <span class="muted">drag to set target</span></h2>
+        <div class="big" id="ev-target-big"></div>
+        <input type="range" id="ev-target" min="20" max="100" step="1" value="${this._evTarget ?? 80}" class="slider">
+        <div class="seg" style="margin:8px 0">${[60, 80, 90, 100].map(v => `<button data-tgt="${v}">${v}%</button>`).join("")}</div>
+        <div id="ev-plan"></div></div>
+      <div class="card"><h2>Controls</h2>
+        <div class="row"><span>Start charging now</span><button id="ev-go">Start</button></div>
+        <div class="row"><span>Refresh car data</span><button id="ev-poll">Poll</button></div>
+        <label class="row"><span>Charge to full</span><input type="checkbox" class="sw" data-sw="full"></label>
+        <label class="row"><span>Schedule</span><input type="checkbox" class="sw" data-sw="sched"></label>
+        <label class="row"><span>Repeat daily</span><input type="checkbox" class="sw" data-sw="daily"></label>
+        <div class="row"><span>Window</span><span><input type="time" id="ev-start"> – <input type="time" id="ev-end"></span></div>
+        <div class="seg" style="margin-top:8px"><button id="ev-cheap" title="Set the schedule to the cheapest hours">Cheapest hours</button><button id="ev-sun" title="Set the schedule to 10:00–14:00 shoulder">Shoulder 10–14</button></div>
+        <div class="muted" id="ev-ctlmsg" style="margin-top:6px"></div></div>
+      <div class="card wide"><h2>Last 24 hours <span class="legend"><b style="color:${C.ev}">■</b> charge level <b style="color:${C.solar}">━</b> power</span></h2>
+        <div class="chart"><svg id="ev-chart" viewBox="0 0 900 220" preserveAspectRatio="none"></svg></div></div>
+      <div class="card"><h2>Tesla Wall Connector <span id="wc-state" class="pill"></span></h2>
+        <div class="stats" id="wc-stats"></div>
+        <div class="muted" style="margin-top:10px">Phase current (A)</div>${wcA}
+        <div class="muted" style="margin-top:10px">Temperature (°C)</div>${temps}</div>
+    </section>`;
+  }
+
+  _wireEv() {
+    const q = s => this._root.querySelector(s);
+    const call = async (dom, svc, data) => {
+      try { await this._hass.callService(dom, svc, data); q("#ev-ctlmsg").textContent = ""; }
+      catch (e) { q("#ev-ctlmsg").textContent = "Failed: " + (e.message || e); }
+    };
+    const slider = q("#ev-target");
+    slider.oninput = () => { this._evTarget = Number(slider.value); this._paintEv(); };
+    this._root.querySelectorAll("[data-tgt]").forEach(b => b.onclick = () => { this._evTarget = Number(b.dataset.tgt); slider.value = this._evTarget; this._paintEv(); });
+    q("#ev-go").onclick = () => call("button", "press", { entity_id: EV.go });
+    q("#ev-poll").onclick = () => call("button", "press", { entity_id: EV.poll });
+    this._root.querySelectorAll("[data-sw]").forEach(c => c.onchange = () =>
+      call("switch", c.checked ? "turn_on" : "turn_off", { entity_id: EV[c.dataset.sw] }));
+    const setT = (id, v) => v && call("time", "set_value", { entity_id: id, time: v.length === 5 ? v + ":00" : v });
+    q("#ev-start").onchange = e => setT(EV.start, e.target.value);
+    q("#ev-end").onchange = e => setT(EV.end, e.target.value);
+    const preset = async (a, b) => {
+      await call("time", "set_value", { entity_id: EV.start, time: a });
+      await call("time", "set_value", { entity_id: EV.end, time: b });
+      await call("switch", "turn_on", { entity_id: EV.sched });
+    };
+    q("#ev-sun").onclick = () => preset("10:00:00", "14:00:00");
+    q("#ev-cheap").onclick = () => {
+      const h = this._evPlan().cheapHours;
+      if (!h.length) return;
+      const pad = n => String(n % 24).padStart(2, "0") + ":00:00";
+      preset(pad(Math.min(...h)), pad(Math.max(...h) + 1));
+    };
+  }
+
+  _paintEv() {
+    const q = s => this._root.querySelector(s); if (!q("#ev-ring")) return;
+    const st = id => this._hass.states[id];
+    const on = id => st(id) && st(id).state === "on";
+    const home = st(EV.loc) && st(EV.loc).state === "home";
+    const pl = this._evPlan();
+    const charging = on(EV.charging), plugged = on(EV.plug);
+    const kwNow = (this._num(EV.power) ?? 0) / (((st(EV.power) || {}).attributes || {}).unit_of_measurement === "W" ? 1000 : 1);
+    const pill = q("#ev-state");
+    pill.textContent = charging ? "Charging" : plugged ? "Plugged in" : home ? "Home" : "Away";
+    pill.style.background = charging ? C.shoulder : plugged ? C.off_peak : "#757575";
+    // ring with target marker
+    const r = 70, c = 2 * Math.PI * r, p = Math.max(0, Math.min(pl.soc, 100)) / 100;
+    const ang = (pl.target / 100) * 2 * Math.PI - Math.PI / 2;
+    const mx = 90 + (r + 0) * Math.cos(ang), my = 90 + r * Math.sin(ang);
+    q("#ev-ring").innerHTML = `<svg viewBox="0 0 180 180" class="evring ${charging ? "pulse" : ""}">
+      <circle cx="90" cy="90" r="${r}" fill="none" stroke="currentColor" opacity=".12" stroke-width="14"/>
+      <circle cx="90" cy="90" r="${r}" fill="none" stroke="${charging ? C.shoulder : C.ev}" stroke-width="14" stroke-linecap="round"
+        stroke-dasharray="${c * p} ${c}" transform="rotate(-90 90 90)" style="transition:stroke-dasharray .8s"/>
+      <circle cx="${mx}" cy="${my}" r="8" fill="${C.home}" stroke="var(--card-background-color,#fff)" stroke-width="3"/>
+      <text x="90" y="88" text-anchor="middle" class="evpct">${Math.round(pl.soc)}%</text>
+      <text x="90" y="108" text-anchor="middle" class="ax" style="font-size:12px">${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh</text>
+      <text x="90" y="126" text-anchor="middle" class="ax" style="font-size:11px">target ${pl.target}%</text></svg>`;
+    q("#ev-stats").innerHTML = [
+      ["Power", charging ? fx(kwNow) + " kW" : "–", C.ev], ["Time left", (st(EV.remain) || {}).state && st(EV.remain).state !== "unknown" ? st(EV.remain).state : "–", C.shoulder],
+      ["Solar surplus", fx(pl.surplus) + " kW", C.solar], ["Locked", on(EV.locked) ? "no" : "yes", on(EV.locked) ? C.peak : C.shoulder],
+    ].map(([l, v, col]) => `<div class="stat" style="border-color:${col}"><span class="muted">${l}</span><b>${v}</b></div>`).join("");
+    // planner
+    q("#ev-target-big").innerHTML = `${pl.target}% <small>needs ${fx(pl.need, 1)} kWh · ${fx(pl.hours, 1)} h at ${fx(pl.kw)} kW</small>`;
+    const solarPct = Math.round(pl.cover * 100);
+    q("#ev-plan").innerHTML = `
+      <div class="row"><span>Cost at today's ${fx(pl.now, 1)}c</span><b>$${fx(pl.costNow, 2)}</b></div>
+      <div class="row"><span>Cost at cheapest ${fx(pl.cheapest, 1)}c${pl.cheapHours.length ? ` (${pl.cheapHours[0]}:00–${pl.cheapHours[pl.cheapHours.length - 1] + 1}:00)` : ""}</span><b class="ok">$${fx(pl.costCheap, 2)}</b></div>
+      <div class="row"><span>You save by waiting</span><b>$${fx(pl.costNow - pl.costCheap, 2)}</b></div>
+      <div class="row"><span>Solar covers right now</span><b>${solarPct}%</b></div>
+      <div class="hbar" style="grid-template-columns:1fr"><div><i style="width:${solarPct}%;background:${C.solar}"></i></div></div>`;
+    // controls (skip while the user is editing)
+    this._root.querySelectorAll("[data-sw]").forEach(c => { c.checked = on(EV[c.dataset.sw]); });
+    const hm = id => ((st(id) || {}).state || "").slice(0, 5);
+    const s1 = q("#ev-start"), s2 = q("#ev-end");
+    if (this._root.activeElement !== s1) s1.value = hm(EV.start);
+    if (this._root.activeElement !== s2) s2.value = hm(EV.end);
+    // wall connector
+    const wc = st(EV.wcStatus), veh = on("binary_sensor.tesla_wall_connector_vehicle_connected");
+    const wp = q("#wc-state"); wp.textContent = wc ? wc.state.replace(/_/g, " ") : "–"; wp.style.background = veh ? C.shoulder : "#757575";
+    const wcKw = (this._kw(EV.wcPower) ?? 0);
+    q("#wc-stats").innerHTML = [["Power", fx(wcKw) + " kW"], ["Session", fx(this._num(EV.wcSession), 1) + " kWh"], ["Grid", fx(this._num(EV.wcV), 0) + " V"], ["Vehicle", veh ? "connected" : "no"]]
+      .map(([l, v]) => `<div class="stat" style="border-color:${C.ev}"><span class="muted">${l}</span><b>${v}</b></div>`).join("");
+    EV.wcA.forEach((id, i) => { const a = this._num(id) ?? 0; q(`[data-a="${i}"]`).style.width = Math.min(a / 32 * 100, 100) + "%"; q(`[data-a="${i}"]`).style.background = C.ev; q(`[data-av="${i}"]`).textContent = fx(a, 0); });
+    EV.wcT.forEach(([, id], i) => { const t = this._num(id) ?? 0; q(`[data-t="${i}"]`).style.width = Math.min(t / 90 * 100, 100) + "%"; q(`[data-t="${i}"]`).style.background = t > 70 ? C.peak : t > 55 ? C.off_peak : C.shoulder; q(`[data-tv="${i}"]`).textContent = fx(t, 0); });
+    this._paintEvChart();
+  }
+
+  _paintEvChart() {
+    const svg = this._root.querySelector("#ev-chart"), s = this._evSeries; if (!svg || !s) return;
+    const W = 900, H = 220, L = 34, R = 34, T = 10, B = 24, N = s.soc.length;
+    const x = i => L + (i / (N - 1)) * (W - L - R);
+    const maxP = Math.max(...s.power.filter(v => v !== null), 1) * 1.1;
+    const ys = v => T + (1 - v / 100) * (H - T - B), yp = v => T + (1 - v / maxP) * (H - T - B);
+    const line = (arr, fn) => arr.map((v, i) => v === null ? "" : (i && arr[i - 1] !== null ? "L" : "M") + x(i).toFixed(1) + " " + fn(v).toFixed(1)).join("");
+    const soc = line(s.soc, ys);
+    let grid = "";
+    for (let k = 0; k <= 4; k++) { const v = k * 25; grid += `<line x1="${L}" x2="${W - R}" y1="${ys(v)}" y2="${ys(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${ys(v) + 3}" text-anchor="end" class="ax">${v}%</text>`; }
+    let hrs = "";
+    for (let k = 0; k <= 24; k += 4) { const t = new Date(s.start.getTime() + k / 24 * (s.end - s.start)); hrs += `<text x="${x(Math.min(k / 24 * (N - 1), N - 1))}" y="${H - 6}" text-anchor="middle" class="ax">${t.getHours()}:00</text>`; }
+    svg.innerHTML = `${grid}${hrs}<path d="${soc} L${x(N - 1)} ${ys(0)} L${x(0)} ${ys(0)} Z" fill="${C.ev}" opacity=".15"/>
+      <path d="${soc}" fill="none" stroke="${C.ev}" stroke-width="2.5"/><path d="${line(s.power, yp)}" fill="none" stroke="${C.solar}" stroke-width="2"/>
+      <text x="${W - R + 4}" y="${yp(maxP) + 10}" class="ax">${maxP.toFixed(0)}</text>`;
   }
 
   // ---- PLAN -----------------------------------------------------------
@@ -444,6 +630,14 @@ nav button.on{background:var(--primary-color);color:var(--text-primary-color,#ff
 .seg button.on{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}
 button{cursor:pointer;border:0;border-radius:8px;padding:6px 12px;background:var(--primary-color);color:var(--text-primary-color,#fff)}
 .ok{color:#66bb6a} .bad{color:#ef5350}
+
+.evring{width:100%;max-width:220px;display:block;margin:0 auto 10px;color:var(--primary-text-color)} .evpct{font-size:34px;font-weight:700;fill:currentColor}
+.evring.pulse circle:nth-of-type(2){animation:glow 2s ease-in-out infinite} @keyframes glow{50%{opacity:.55}}
+.slider{width:100%;accent-color:var(--primary-color);height:28px}
+.sw{width:42px;height:22px;accent-color:var(--primary-color);cursor:pointer}
+input[type=time]{background:var(--card-background-color);color:inherit;border:1px solid var(--divider-color);border-radius:8px;padding:3px 6px}
+.phase{display:grid;grid-template-columns:44px 1fr 36px;gap:8px;align-items:center;margin:5px 0;font-size:13px}
+.phase div{height:10px;background:var(--divider-color);border-radius:5px;overflow:hidden} .phase i{display:block;height:100%;border-radius:5px;transition:width .6s} .phase b{text-align:right}
 @media (max-width:640px){:host{padding:10px 10px 40px}.big{font-size:24px}.chart{height:200px}.legend{margin-left:0}}
 `;
 customElements.define("cortex-studio", CortexStudio);
