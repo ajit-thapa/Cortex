@@ -59,6 +59,18 @@ SECTIONS: dict[str, dict[str, Any]] = {
         CONF_DOORBELL_CAMERA: _entity("camera"),
         CONF_LEARN: _entity("light", "switch", "lock", "cover", "binary_sensor", multiple=True),
     },
+    "studio": {
+        CONF_ST_PV: _entity("sensor"),
+        CONF_ST_GRID: _entity("sensor"),
+        CONF_ST_GRID_INVERT: sel.BooleanSelector(),
+        CONF_ST_BATT: _entity("sensor"),
+        CONF_ST_BATT_INVERT: sel.BooleanSelector(),
+        CONF_ST_EV: _entity("sensor"),
+        CONF_ST_DAY_PV: _entity("sensor"),
+        CONF_ST_DAY_LOAD: _entity("sensor"),
+        CONF_ST_DAY_EXPORT: _entity("sensor"),
+        CONF_ST_DAY_IMPORT: _entity("sensor"),
+    },
     "energy": {
         CONF_SOC: _entity("sensor"),
         CONF_MODE: _entity("select"),
@@ -102,7 +114,8 @@ CLEARABLE = {
     CONF_CHARGE_TARGET, CONF_DISCHARGE_TARGET, CONF_STOP, CONF_PV_TODAY, CONF_PV_TOMORROW,
     CONF_EV_SOC, CONF_EV_PLUG, CONF_EV_TARGET, CONF_EV_START, CONF_HOLIDAYS, CONF_SOC,
     CONF_BRIEF_MORNING, CONF_BRIEF_EVENING, CONF_WEATHER, CONF_WEEKLY_TIME,
-    CONF_AI_TASK, CONF_DOORBELL_CAMERA,
+    CONF_AI_TASK, CONF_DOORBELL_CAMERA, CONF_ST_PV, CONF_ST_GRID, CONF_ST_BATT, CONF_ST_EV,
+    CONF_ST_DAY_PV, CONF_ST_DAY_LOAD, CONF_ST_DAY_EXPORT, CONF_ST_DAY_IMPORT,
 }
 
 
@@ -148,7 +161,7 @@ class CortexOptionsFlow(OptionsFlow):
         return {**DEFAULTS, **self.config_entry.options}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["general", "briefing", "house", "energy", "tariff"])
+        return self.async_show_menu(step_id="init", menu_options=["general", "briefing", "house", "studio", "energy", "tariff"])
 
     async def _section(self, section: str, user_input: dict[str, Any] | None) -> ConfigFlowResult:
         if user_input is not None:
@@ -165,6 +178,9 @@ class CortexOptionsFlow(OptionsFlow):
 
     async def async_step_house(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._section("house", user_input)
+
+    async def async_step_studio(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._section("studio", user_input)
 
     async def async_step_energy(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return await self._section("energy", user_input)

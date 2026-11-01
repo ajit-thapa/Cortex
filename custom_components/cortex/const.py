@@ -37,6 +37,18 @@ CONF_DOORBELL = "doorbell_entities"
 CONF_DOORBELL_CAMERA = "doorbell_camera"
 CONF_LEARN = "learn_entities"
 
+# Energy Studio panel: live power sources and daily energy totals
+CONF_ST_PV = "studio_pv"
+CONF_ST_GRID = "studio_grid"
+CONF_ST_BATT = "studio_battery"
+CONF_ST_EV = "studio_ev"
+CONF_ST_GRID_INVERT = "studio_grid_invert"
+CONF_ST_BATT_INVERT = "studio_battery_invert"
+CONF_ST_DAY_PV = "studio_day_pv"
+CONF_ST_DAY_LOAD = "studio_day_load"
+CONF_ST_DAY_EXPORT = "studio_day_export"
+CONF_ST_DAY_IMPORT = "studio_day_import"
+
 BRIEF_SECTIONS = ["energy", "weather", "reminders", "health", "security", "parcels"]
 
 # --- energy entities -------------------------------------------------------
@@ -97,6 +109,16 @@ DEFAULTS: dict[str, object] = {
     CONF_DOORBELL: [],
     CONF_DOORBELL_CAMERA: None,
     CONF_LEARN: [],
+    CONF_ST_PV: "sensor.sungrow_pv",
+    CONF_ST_GRID: "sensor.neovolt_online_grid",
+    CONF_ST_BATT: "sensor.neovolt_online_battery_power",
+    CONF_ST_EV: "sensor.tesla_wall_connector_ev_charger",
+    CONF_ST_GRID_INVERT: False,
+    CONF_ST_BATT_INVERT: False,
+    CONF_ST_DAY_PV: "sensor.neovolt_online_pv_generated_today",
+    CONF_ST_DAY_LOAD: "sensor.neovolt_online_consumed_today",
+    CONF_ST_DAY_EXPORT: "sensor.neovolt_online_feed_in_today",
+    CONF_ST_DAY_IMPORT: "sensor.neovolt_online_grid_import_today",
     CONF_QUIET_START: "22:00:00",
     CONF_QUIET_END: "07:00:00",
     CONF_BANNED: "",

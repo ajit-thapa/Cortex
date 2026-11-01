@@ -22,7 +22,8 @@
           "energy": "Energy and EV",
           "tariff": "Tariff rates",
           "briefing": "Briefings and reports",
-          "house": "House, cameras and learning"
+          "house": "House, cameras and learning",
+          "studio": "Energy Studio sources"
         }
       },
       "general": {
@@ -105,6 +106,21 @@
           "doorbell_entities": "Doorbell or ring sensors",
           "doorbell_camera": "Doorbell camera",
           "learn_entities": "Entities to learn routines from"
+        }
+      },
+      "studio": {
+        "title": "Energy Studio sources",
+        "data": {
+          "studio_pv": "Solar power (kW or W)",
+          "studio_grid": "Grid power",
+          "studio_grid_invert": "Grid sign is flipped (positive = export)",
+          "studio_battery": "Battery power",
+          "studio_battery_invert": "Battery sign is flipped (positive = discharge)",
+          "studio_ev": "EV charger power",
+          "studio_day_pv": "Solar generated today (kWh)",
+          "studio_day_load": "Consumed today (kWh)",
+          "studio_day_export": "Exported today (kWh)",
+          "studio_day_import": "Imported today (kWh)"
         }
       }
     }

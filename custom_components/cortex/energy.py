@@ -154,6 +154,7 @@ class EnergyBrain:
             "ev_stored": tariff.stored_kwh(ev_soc, ev_kwh) if ev_soc is not None else None,
             "ev_room": tariff.room_kwh(ev_soc, ev_kwh) if ev_soc is not None else None,
             "ev_plugged": plugged,
+            "low_solar": float(o[CONF_LOW_SOLAR]),
         }
         data["storage_summary"] = self._storage_summary(data, bat_kwh, ev_kwh)
         data["summary"] = self._summary(data)

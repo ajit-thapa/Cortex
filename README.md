@@ -22,6 +22,7 @@ A shared brain for Home Assistant: one household memory, one set of speech rules
 | Heating pre-warm | Starts a climate entity early enough to reach a target by a set time; learns how fast the room warms. |
 | Voice room | Replies go to the room where someone last spoke to a satellite, falling back to recent motion. |
 | Backup | JSON backup of everything Cortex remembers under `cortex_backups/` (last 10 kept, weekly if enabled) and `restore`. |
+| Energy Studio | Second sidebar panel in plain JS and CSS: live animated power flow, rate ribbon with countdown, battery/EV gauges, 24-hour solar/load/grid/battery chart, rate and forecast plan, daily history (7/14/30 days) with self-sufficiency, and house status. Sources are set under Configure > Energy Studio sources. |
 | Panel | Sidebar page: rate schedule chart, storage, health, suggestions, routines, security, visitors and camera spots, weekly stats, timeline, memory manager, speech log, backup. |
 
 ## Install

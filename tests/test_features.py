@@ -300,3 +300,17 @@ async def test_voice_area_beats_motion(hass: HomeAssistant):
     sp._area_of = lambda e: {"assist_satellite.office": "office"}.get(e)
     sp.note_voice("assist_satellite.office")
     assert sp.likely_area() == "office"
+
+
+# ---- Energy Studio -------------------------------------------------------------
+async def test_overview_carries_studio_sources(hass: HomeAssistant, hass_ws_client):
+    brain = await _setup(hass)
+    assert brain.snapshot["low_solar"] == 30.0
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "cortex/overview"})
+    msg = await client.receive_json()
+    assert msg["success"]
+    studio = msg["result"]["studio"]
+    assert studio["pv"] == "sensor.sungrow_pv" and studio["grid"] == "sensor.neovolt_online_grid"
+    assert studio["grid_invert"] is False and studio["day_pv"].endswith("pv_generated_today")
+    assert msg["result"]["energy"]["low_solar"] == 30.0
