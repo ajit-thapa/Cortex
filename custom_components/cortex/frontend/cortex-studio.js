@@ -181,7 +181,7 @@ class CortexStudio extends HTMLElement {
     this._root = this.attachShadow({ mode: "open" });
     this._root.innerHTML = `<style>${CSS}</style>
       <div class="bg" aria-hidden="true"></div>
-      <header><h1>🧠 Cortex</h1><nav id="tabs"></nav><span id="clock" class="muted"></span></header>
+      <header><h1><img class="logo" src="/cortex_static/icon.svg" alt="" width="30" height="30"> Cortex</h1><nav id="tabs"></nav><span id="clock" class="muted"></span></header>
       <main id="view"></main>`;
     // Background photo from HA local storage (/config/www). First path that loads wins.
     const bg = this._root.querySelector(".bg");
@@ -1172,6 +1172,7 @@ const CSS = `
   -webkit-mask-image:linear-gradient(#000 40%,transparent);mask-image:linear-gradient(#000 40%,transparent)}
 header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1300px;margin:0 auto 14px}
 h1{font-size:22px;margin:0;font-weight:600}
+h1{display:flex;align-items:center;gap:10px}.logo{border-radius:8px}
 h2{font-size:14px;margin:0 0 10px;font-weight:600;opacity:.85;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 nav{display:flex;gap:4px;background:var(--card-background-color);border-radius:999px;padding:4px;box-shadow:var(--ha-card-box-shadow,0 1px 3px #0002)}
 nav button{border:0;background:transparent;color:var(--secondary-text-color);padding:6px 16px;border-radius:999px;cursor:pointer;font-size:14px}
