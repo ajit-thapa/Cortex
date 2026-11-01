@@ -446,12 +446,12 @@ class CortexStudio extends HTMLElement {
     pill.style.background = charging ? C.shoulder : plugged ? C.off_peak : "#757575";
     this._battWidgets();
     const fill = q("#ev-fill"); if (fill) {
-      fill.style.width = Math.max(0, Math.min(pl.soc, 100)) + "%"; fill.style.background = charging ? C.shoulder : C.ev;
+      fill.style.width = Math.max(0, Math.min(pl.soc, 100)) + "%"; fill.style.backgroundColor = charging ? C.shoulder : C.ev;
       q("#ev-mark").style.left = pl.target + "%";
       q("#ev-big").textContent = Math.round(pl.soc) + "%";
       q("#ev-sub").textContent = `${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh · target ${pl.target}%` + (charging ? ` · ⚡ charging ${fx(kwNow)} kW` : plugged ? " · plugged in" : "");
-      q("#ev-glow").className = "carglow" + (charging ? " on" : "");
-      fill.classList.toggle("chg", charging); q(".carbox").classList.toggle("chg", charging);
+      q("#ev-glow").className = "carglow" + (plugged || charging ? " on" : "") + (charging ? " chg" : "");
+      fill.classList.toggle("chg", charging); const cb = q(".carbox"); cb.classList.toggle("chg", charging); cb.classList.toggle("plug", plugged || charging);
     }
     q("#ev-stats").innerHTML = [
       ["Power", charging ? fx(kwNow) + " kW" : "–", C.ev], ["Time left", (st(EV.remain) || {}).state && st(EV.remain).state !== "unknown" ? st(EV.remain).state : "–", C.shoulder],
@@ -515,7 +515,7 @@ class CortexStudio extends HTMLElement {
       const soc = this._num(EV.soc) ?? this._num(s.ev_soc), cap = this._num(EV.cap) ?? 82.5;
       const chg = this._hass.states[EV.charging] && this._hass.states[EV.charging].state === "on";
       const kw = f.ev;
-      battSet(ev, { pct: soc, charging: chg || kw > 0.05,
+      battSet(ev, { pct: soc, charging: chg || kw > 0.05, plugged: !!this._data.energy.ev_plugged || (this._hass.states[EV.plug] || {}).state === "on",
         sub: `${fx(soc === null ? null : soc * cap / 100, 1)} of ${fx(cap, 0)} kWh · ` + (chg || kw > 0.05 ? "⚡ charging " + fx(kw) + " kW" : (this._data.energy.ev_plugged ? "plugged in" : "unplugged")),
         marks: [{ pct: this._tab === "ev" && this._evTarget !== undefined ? this._evTarget : this._num("input_number.byd_target_soc"), color: C.home, label: "Target" }] });
     }
@@ -1066,7 +1066,7 @@ function battSet(root, o) {
   if (!root) return;
   root._last = o; battImg(root);
   const pct = o.pct === null || o.pct === undefined ? null : Math.max(0, Math.min(o.pct, 100)), p = pct ?? 0, col = levelColor(pct), ev = root.dataset.b === "ev";
-  root.classList.toggle("chg", !!o.charging); root.classList.toggle("dis", !!o.discharging); root.style.setProperty("--bc", col);
+  root.classList.toggle("plug", !!(o.plugged || o.charging)); root.classList.toggle("chg", !!o.charging); root.classList.toggle("dis", !!o.discharging); root.style.setProperty("--bc", col);
   root.querySelector(".bbig").textContent = pct === null ? "–" : Math.round(pct) + "%";
   root.querySelector(".bsub").textContent = o.sub || "";
   const marks = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined);
@@ -1190,8 +1190,10 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .carbar{position:absolute;left:18px;right:18px;bottom:14px;z-index:2}
 .barbg{position:relative;height:12px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);overflow:visible}
 .barbg i{position:absolute;left:0;top:0;bottom:0;border-radius:7px;transition:width .8s,background .4s;box-shadow:0 0 12px currentColor}
-.barbg i.chg{background-image:linear-gradient(105deg,transparent 0 40%,#fff7 50%,transparent 60%);background-size:250% 100%;animation:photo 2.2s linear infinite}
-.carbox.chg img{animation:carpulse2 2.4s ease-in-out infinite}@keyframes carpulse2{50%{filter:drop-shadow(0 12px 24px #66bb6acc)}}
+.barbg i.chg{background-image:repeating-linear-gradient(115deg,#ffffff45 0 9px,transparent 9px 18px);background-size:36px 100%;animation:stripes .8s linear infinite}@keyframes stripes{to{background-position:36px 0}}
+.carbox.plug img{filter:drop-shadow(0 8px 22px #ffa726cc) drop-shadow(0 0 6px #ffa72688)}
+.carbox.chg img{animation:carpulse2 2.2s ease-in-out infinite}@keyframes carpulse2{0%,100%{filter:drop-shadow(0 8px 18px #66bb6a99) drop-shadow(0 0 4px #66bb6a66)}50%{filter:drop-shadow(0 10px 32px #66bb6aee) drop-shadow(0 0 14px #66bb6acc)}}
+.carglow.on:not(.chg){background:radial-gradient(closest-side,#ffa72688,transparent)}
 .barbg u{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1px;border-radius:2px;background:#ef6c00;text-decoration:none}
 .barlbl{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px}.barlbl b{font-size:22px}
 .evside{padding:18px;display:flex;flex-direction:column;justify-content:center;gap:10px;background:color-mix(in srgb,var(--primary-text-color) 4%,transparent)}
@@ -1230,10 +1232,11 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
 .chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
 .bimg.plain img{filter:drop-shadow(0 14px 14px #0006);opacity:1}.bimg.plain .bfl,.bimg.plain .bimk{display:none}
-.chg .bimg.plain img{animation:carpulse 2.4s ease-in-out infinite}@keyframes carpulse{50%{filter:drop-shadow(0 10px 22px var(--bc))}}
+.plug .bimg.plain img{filter:drop-shadow(0 8px 20px #ffa726cc)}
+.chg .bimg.plain img{animation:carpulse 2.2s ease-in-out infinite}@keyframes carpulse{0%,100%{filter:drop-shadow(0 8px 16px #66bb6a99)}50%{filter:drop-shadow(0 10px 30px #66bb6aee) drop-shadow(0 0 12px #66bb6acc)}}
 .bbar{position:relative;width:100%;height:12px;border-radius:6px;background:var(--divider-color);margin:12px auto 4px;max-width:380px;overflow:hidden}
 .bbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--bc);border-radius:6px;transition:width 1s}
-.chg .bbar i{background-image:linear-gradient(105deg,transparent 0 40%,#fff7 50%,transparent 60%);background-size:250% 100%;animation:photo 2.2s linear infinite}
+.chg .bbar i{background-image:repeating-linear-gradient(115deg,#ffffff45 0 9px,transparent 9px 18px);background-size:36px 100%;animation:stripes .8s linear infinite}
 .bbar u{position:absolute;top:0;bottom:0;width:3px}
 .bimk{position:absolute;inset:0;pointer-events:none}.bimk i{position:absolute;opacity:.9}
 .battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px;gap:2px}
