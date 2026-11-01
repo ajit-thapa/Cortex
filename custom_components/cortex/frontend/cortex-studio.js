@@ -368,7 +368,7 @@ class CortexStudio extends HTMLElement {
     const temps = EV.wcT.map(([n], i) => `<div class="phase"><span>${n}</span><div><i data-t="${i}"></i></div><b data-tv="${i}">–</b></div>`).join("");
     return `<section class="grid">
       <div class="card evhero wide"><div class="stage">
-          <div class="carbox"><img src="${EV.img}" alt="BYD Sealion 7" onerror="this.style.display='none'">
+          <div class="carbox"><div class="carpic"><img src="${EV.img}" alt="BYD Sealion 7" onerror="this.style.display='none'">${carOverlay()}</div>
             <div class="carglow" id="ev-glow"></div>
             <div class="cartop"><span class="carname">BYD Sealion 7</span><span id="ev-state" class="pill"></span></div>
             <div class="carbar"><div class="barbg"><i id="ev-fill"></i><u id="ev-mark"></u></div>
@@ -445,7 +445,7 @@ class CortexStudio extends HTMLElement {
       q("#ev-big").textContent = Math.round(pl.soc) + "%";
       q("#ev-sub").textContent = `${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh · target ${pl.target}%` + (charging ? ` · ⚡ charging ${fx(kwNow)} kW` : plugged ? " · plugged in" : "");
       q("#ev-glow").className = "carglow" + (plugged || charging ? " on" : "") + (charging ? " chg" : "");
-      fill.classList.toggle("chg", charging); const cb = q(".carbox"); cb.classList.toggle("chg", charging); cb.classList.toggle("plug", plugged || charging);
+      fill.classList.toggle("chg", charging); const cb = q(".carbox"); cb.classList.toggle("chg", charging); cb.classList.toggle("plug", plugged || charging); carOverlaySet(cb, pl.soc, plugged, charging);
     }
     q("#ev-stats").innerHTML = [
       ["Power", charging ? fx(kwNow) + " kW" : "–", C.ev], ["Time left", (st(EV.remain) || {}).state && st(EV.remain).state !== "unknown" ? st(EV.remain).state : "–", C.shoulder],
@@ -1019,7 +1019,7 @@ function sceneSet(root, o) {
   set(".scar", e => { e.style.fill = o.charging ? C.shoulder : C.off_peak; });
   set(".spv", e => { e.style.opacity = Math.min(f.pv / 6, 1) * 0.5; });
   root.classList.toggle("bchg", f.batt > 0.05); root.classList.toggle("bdis", f.batt < -0.05);
-  root.classList.toggle("cplug", !!(o.plugged || o.charging)); root.classList.toggle("cchg", !!o.charging);
+  root.classList.toggle("scplug", !!(o.plugged || o.charging)); root.classList.toggle("scchg", !!o.charging);
   // seconds per 96px of travel: fast at high power, slow at low; width grows with power
   const flow = (k, kw, rev) => {
     const a = Math.abs(kw), on = a > 0.05;
@@ -1046,10 +1046,23 @@ function sceneSet(root, o) {
     + card(255, 316, "BYD SEALION 7", pc(o.esoc) + (o.charging ? " ⚡" : ""), o.charging ? "charging " + fx(f.ev) + " kW" : o.plugged ? "plugged in" : "", ecol, [285, 410])
     + card(220, 640, "GRID", fx(Math.abs(f.grid)) + " kW", Math.abs(f.grid) < 0.05 ? "idle" : f.grid > 0 ? "importing" : "exporting", C.grid, [225, 697]); });
 }
+// Battery % chip and plug badge laid over the BYD photo
+function carOverlay() {
+  return `<div class="csoc"><span class="cbat"><i></i></span><b>–</b></div>
+    <div class="cplug" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M6 7h12v3a6 6 0 0 1-12 0zM12 16v6"/></svg><span></span></div>`;
+}
+function carOverlaySet(root, pct, plugged, charging) {
+  const p = pct === null || pct === undefined ? null : Math.max(0, Math.min(pct, 100)), col = levelColor(p);
+  root.querySelectorAll(".csoc").forEach(e => { e.style.setProperty("--p", p ?? 0); e.style.setProperty("--lc", col); e.querySelector("b").textContent = p === null ? "–" : Math.round(p) + "%"; });
+  root.querySelectorAll(".cplug").forEach(e => {
+    const on = !!(plugged || charging); e.hidden = !on; e.classList.toggle("chg", !!charging);
+    e.querySelector("span").textContent = charging ? "Charging" : "Plugged in";
+  });
+}
 function battHTML(key, label) {
   return `<div class="batt ${key === "ev" ? "carw" : "towerw"}" data-b="${key}">
     <div class="bstage">${key === "ev" ? carSvg(key) : towerSvg(key)}
-      <div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div></div></div>
+      <div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div>${key === "ev" ? carOverlay() : ""}</div></div>
     ${key === "ev" ? `<div class="bbar" hidden><i></i><span class="bmk"></span></div>` : ""}
     <div class="battmeta"><span class="bbig"></span><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
 }
@@ -1098,7 +1111,7 @@ function battSet(root, o) {
   const marks = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined);
   if (root._img === "plain") {
     const bar = root.querySelector(".bbar");
-    bar.querySelector("i").style.width = p + "%";
+    bar.querySelector("i").style.width = p + "%"; carOverlaySet(root, pct, o.plugged, o.charging);
     bar.querySelector(".bmk").innerHTML = marks.map(m => `<u title="${esc(m.label)} ${Math.round(m.pct)}%" style="left:${m.pct}%;background:${m.color}"></u>`).join("");
     return;
   }
@@ -1267,8 +1280,14 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .shub{fill:none;stroke:#fff;stroke-opacity:.0;stroke-width:3}.bany .shub{stroke-opacity:.45;animation:snp 2.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
 .scd{fill:rgba(14,18,26,.84);stroke:rgba(255,255,255,.14)}.scl{fill:#9aa7b4;font-size:13px;font-weight:600;letter-spacing:.08em}.scv{fill:#fff;font-size:26px;font-weight:700}.scs{fill:#b8c2cc;font-size:14px}
 .sld{stroke-width:2;stroke-dasharray:3 5;opacity:.7}
-.bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.cplug .scar{opacity:.32}.cchg .scar{animation:xgl 1.6s ease-in-out infinite}
+.bchg .sbglow,.bdis .sbglow{animation:xgl 1.8s ease-in-out infinite}.scplug .scar{opacity:.32}.scchg .scar{animation:xgl 1.6s ease-in-out infinite}
 @keyframes xgl{0%,100%{opacity:.15}50%{opacity:.7}}
+.carpic{position:relative;display:inline-block;max-width:88%;z-index:1}.carpic img{max-width:100%!important}
+.csoc,.cplug{position:absolute;display:flex;white-space:nowrap;align-items:center;gap:7px;background:rgba(14,18,26,.84);color:#fff;border-radius:999px;padding:5px 12px;font-weight:700;border:1px solid rgba(255,255,255,.2);z-index:3;box-shadow:0 4px 14px #0006}
+.csoc{left:8px;bottom:8px;font-size:17px}.cplug{right:8px;top:8px;font-size:13px;border-color:#ffa726}.cplug[hidden]{display:none}.cplug svg{width:17px;height:17px;color:#ffa726}
+.cplug.chg{border-color:#66bb6a}.cplug.chg svg{color:#66bb6a;animation:blink 1.2s ease-in-out infinite}
+.cbat{position:relative;width:28px;height:14px;border:2px solid #fff;border-radius:4px;display:inline-block;box-sizing:border-box}.cbat:after{content:"";position:absolute;right:-5px;top:2px;width:3px;height:6px;background:#fff;border-radius:0 2px 2px 0}
+.cbat i{position:absolute;left:1px;top:1px;bottom:1px;width:calc((100% - 2px) * var(--p,0) / 100);background:var(--lc,#66bb6a);border-radius:1px;transition:width 1s}
 .carbox img{max-width:88%;max-height:230px;object-fit:contain;filter:drop-shadow(0 18px 18px #0006);position:relative;z-index:1}
 .carbox.plug img{filter:drop-shadow(0 8px 22px #ffa726cc) drop-shadow(0 0 6px #ffa72688)}
 .carbox.chg img{animation:carpulse2 2.2s ease-in-out infinite}@keyframes carpulse2{0%,100%{filter:drop-shadow(0 8px 18px #66bb6a99) drop-shadow(0 0 4px #66bb6a66)}50%{filter:drop-shadow(0 10px 32px #66bb6aee) drop-shadow(0 0 14px #66bb6acc)}}
