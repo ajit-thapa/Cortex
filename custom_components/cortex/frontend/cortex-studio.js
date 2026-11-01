@@ -1,5 +1,5 @@
 /* Cortex Energy Studio. Vanilla custom element: live power flow, rate ribbon,
-   24h chart, plan, daily history and house status. No build step, no libraries. */
+   24h chart, plan, history & analytics and house status. No build step, no libraries. */
 const C = {
   solar: "#f9a825", grid: "#7e57c2", batt: "#26a69a", ev: "#42a5f5", home: "#ef6c00",
   peak: "#ef5350", shoulder: "#66bb6a", off_peak: "#ffa726",
@@ -58,7 +58,7 @@ function tariffAt(h, r) {
   return { per, imp, fit };
 }
 const dayLabel = (key, long) => long ? key.slice(8) + "/" + key.slice(5, 7) : new Date(key + "T12:00").toLocaleDateString([], { weekday: "short" });
-const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["history", "History"], ["house", "House"]];
+const TABS = [["now", "Now"], ["ev", "EV"], ["battery", "Battery"], ["plan", "Plan"], ["analytics", "Analytics"], ["house", "House"]];
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fx = (v, n = 1) => (v === null || v === undefined || Number.isNaN(v) ? "–" : Number(v).toFixed(n));
@@ -67,9 +67,8 @@ class CortexStudio extends HTMLElement {
   constructor() {
     super();
     try { this._tab = localStorage.getItem("cortex-studio-tab") || "now"; } catch (e) { this._tab = "now"; }
-    this._range = 14;
+    if (this._tab === "history") this._tab = "analytics";
     this._series = null;
-    this._daily = null;
     this._seriesAt = 0;
   }
   set hass(hass) {
@@ -105,7 +104,6 @@ class CortexStudio extends HTMLElement {
     if (a && (a.tagName === "INPUT" || a.tagName === "SELECT")) return;
     this._render();
     if (this._tab === "now" && Date.now() - this._seriesAt > 300000) this._loadSeries();
-    if (this._tab === "history" && !this._daily) this._loadDaily();
     if (this._tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
     if (this._tab === "plan" && Date.now() - (this._earnAt || 0) > 120000) this._loadEarn();
     if ((this._tab === "battery" || this._tab === "analytics") && Date.now() - ((this._moreAt || {})[this._tab] || 0) > 300000) this._loadMore(this._tab);
@@ -173,11 +171,6 @@ class CortexStudio extends HTMLElement {
     } catch (e) { /* history is optional */ }
   }
 
-  async _loadDaily() {
-    try { await this._energy(); this._daily = true; } catch (e) { this._daily = {}; }
-    if (this._tab === "history") this._paintHistory();
-  }
-
   // ---- frame ----------------------------------------------------------
   _build() {
     this._root = this.attachShadow({ mode: "open" });
@@ -196,7 +189,6 @@ class CortexStudio extends HTMLElement {
     if (tab === "ev" && Date.now() - (this._evAt || 0) > 300000) this._loadEv();
     if (tab === "plan" && Date.now() - (this._earnAt || 0) > 120000) this._loadEarn();
     if ((tab === "battery" || tab === "analytics") && Date.now() - ((this._moreAt || {})[tab] || 0) > 300000) this._loadMore(tab);
-    if (tab === "history" && !this._daily) this._loadDaily();
   }
 
   _render() {
@@ -204,8 +196,8 @@ class CortexStudio extends HTMLElement {
     this._root.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === this._tab));
     this._root.querySelector("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const view = this._root.querySelector("#view");
-    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), history: () => this._viewHistory(), house: () => this._viewHouse() })[this._tab]();
-    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => { this._battWidgets(); this._paintMore("battery"); }, analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, history: () => { this._wireHistory(); this._paintHistory(); }, house: () => this._wireHouse() })[this._tab]();
+    view.innerHTML = ({ now: () => this._viewNow(), ev: () => this._viewEv(), battery: () => this._viewBattery(), analytics: () => this._viewAnalytics(), plan: () => this._viewPlan(), house: () => this._viewHouse() })[this._tab]();
+    ({ now: () => { this._paintLive(); this._paintChart(); }, ev: () => { this._wireEv(); this._paintEv(); }, battery: () => { this._battWidgets(); this._paintMore("battery"); }, analytics: () => this._paintMore("analytics"), plan: () => { this._wirePlan(); this._wireExtras(); this._paintEarn(); }, house: () => this._wireHouse() })[this._tab]();
   }
 
   // ---- NOW ------------------------------------------------------------
@@ -374,7 +366,7 @@ class CortexStudio extends HTMLElement {
     const temps = EV.wcT.map(([n], i) => `<div class="phase"><span>${n}</span><div><i data-t="${i}"></i></div><b data-tv="${i}">–</b></div>`).join("");
     return `<section class="grid">
       <div class="card evhero wide"><div class="stage">
-          <div class="carbox"><img src="${EV.img}" alt="BYD Sealion 7" onerror="this.style.display='none'">
+          <div class="carbox">${xrayHTML("hero")}
             <div class="carglow" id="ev-glow"></div>
             <div class="cartop"><span class="carname">BYD Sealion 7</span><span id="ev-state" class="pill"></span></div>
             <div class="carbar"><div class="barbg"><i id="ev-fill"></i><u id="ev-mark"></u></div>
@@ -451,7 +443,7 @@ class CortexStudio extends HTMLElement {
       q("#ev-big").textContent = Math.round(pl.soc) + "%";
       q("#ev-sub").textContent = `${fx(pl.soc * pl.cap / 100, 1)} of ${fx(pl.cap, 0)} kWh · target ${pl.target}%` + (charging ? ` · ⚡ charging ${fx(kwNow)} kW` : plugged ? " · plugged in" : "");
       q("#ev-glow").className = "carglow" + (plugged || charging ? " on" : "") + (charging ? " chg" : "");
-      fill.classList.toggle("chg", charging); const cb = q(".carbox"); cb.classList.toggle("chg", charging); cb.classList.toggle("plug", plugged || charging);
+      fill.classList.toggle("chg", charging); xraySet(q(".carbox"), { pct: pl.soc, target: pl.target, plugged, charging });
     }
     q("#ev-stats").innerHTML = [
       ["Power", charging ? fx(kwNow) + " kW" : "–", C.ev], ["Time left", (st(EV.remain) || {}).state && st(EV.remain).state !== "unknown" ? st(EV.remain).state : "–", C.shoulder],
@@ -872,48 +864,6 @@ class CortexStudio extends HTMLElement {
     if (x) x.onclick = () => act("autopilot_export");
   }
 
-  // ---- HISTORY --------------------------------------------------------
-  _viewHistory() {
-    return `<section class="grid"><div class="card wide">
-      <h2>Daily energy <span class="seg">${[7, 14, 30].map(n => `<button data-range="${n}" class="${n === this._range ? "on" : ""}">${n}d</button>`).join("")}</span>
-      <span class="legend"><b style="color:${C.solar}">■</b> solar <b style="color:${C.home}">■</b> used <b style="color:${C.grid}">■</b> imported <b style="color:${C.shoulder}">■</b> exported</span></h2>
-      <div id="hchart" class="chart"><div class="muted">Loading…</div></div></div>
-      <div class="card stats wide" id="htotals"></div></section>`;
-  }
-  _wireHistory() {
-    this._root.querySelectorAll("[data-range]").forEach(b => b.onclick = () => {
-      this._range = Number(b.dataset.range); this._daily = null; this._render(); this._loadDaily();
-    });
-  }
-  _paintHistory() {
-    const el = this._root.querySelector("#hchart"), tot = this._root.querySelector("#htotals");
-    if (!el || !this._daily) return;
-    const c = this._enCompute();
-    if (!c) { el.innerHTML = `<div class="muted">No daily statistics yet.</div>`; return; }
-    const keys = [[0, C.solar], [0, C.home], [0, C.grid], [0, C.shoulder]];
-    const days = new Map();
-    c.days.slice(-this._range).forEach(d => days.set(d.key, [d.pv, d.used, d.imp, d.exp]));
-    const rows = [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    if (!rows.length) { el.innerHTML = `<div class="muted">No daily statistics yet. They appear once Home Assistant has compiled a day of data.</div>`; return; }
-    const W = 900, H = 260, L = 34, T = 10, B = 26, gw = (W - L - 6) / rows.length;
-    const max = Math.max(...rows.flatMap(r => r[1]), 1) * 1.1, y = v => T + (1 - v / max) * (H - T - B);
-    let bars = "", labels = "", grid = "";
-    for (let k = 0; k <= 4; k++) { const v = (max * k) / 4; grid += `<line x1="${L}" x2="${W - 6}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" class="ax">${v.toFixed(0)}</text>`; }
-    rows.forEach(([day, vals], i) => {
-      const gx = L + i * gw, bw = Math.max((gw - 4) / 4, 2);
-      vals.forEach((v, j) => { bars += `<rect x="${gx + 2 + j * bw}" y="${y(v)}" width="${bw - 1}" height="${H - B - y(v)}" rx="1.5" fill="${keys[j][1]}"><title>${day}: ${v.toFixed(1)} kWh</title></rect>`; });
-      if (rows.length <= 14 || i % 3 === 0) labels += `<text x="${gx + gw / 2}" y="${H - 8}" text-anchor="middle" class="ax">${day.slice(8)}/${day.slice(5, 7)}</text>`;
-    });
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}${bars}${labels}</svg>`;
-    const sum = j => rows.reduce((a, r) => a + r[1][j], 0);
-    const pv = sum(0), used = sum(1), imp = sum(2), exp = sum(3);
-    const self = used > 0 ? Math.max(0, Math.min(100, (1 - imp / used) * 100)) : null;
-    tot.innerHTML = [["Solar", fx(pv, 0) + " kWh", C.solar], ["Used", fx(used, 0) + " kWh", C.home],
-      ["Imported", fx(imp, 0) + " kWh", C.grid], ["Exported", fx(exp, 0) + " kWh", C.shoulder],
-      ["Self-sufficiency", self === null ? "–" : fx(self, 0) + "%", C.batt]]
-      .map(([l, v, c]) => `<div class="stat" style="border-color:${c}"><span class="muted">${l}</span><b>${v}</b></div>`).join("");
-  }
-
   // ---- HOUSE ----------------------------------------------------------
   _viewHouse() {
     const d = this._data, sec = d.security || { ok: true, issues: [] }, v = d.visitors || { log: [], parcels: 0, today: 0 };
@@ -975,34 +925,7 @@ function barChart(days, series, o = {}) {
 // ---- battery visuals: Neovolt ESS tower and SUV, optional PNG overrides --------
 const levelColor = p => (p === null ? "#757575" : p < 20 ? C.peak : p < 40 ? C.off_peak : C.shoulder);
 // Drop transparent PNGs here to replace the drawings: /config/www/cortex/<name>.png
-const BIMG = { house: "/local/cortex/neovolt-ess.png", ev: EV.img }; // EV: the real BYD photo from the HA image entity
-const CAR_BODY = "M26 132C20 126 18 106 21 94C24 86 38 80 62 72C100 52 142 26 192 18C222 14 262 14 294 22C324 30 348 58 364 72C382 78 410 86 420 98C426 106 426 120 422 132L416 140L34 140Z";
-const CAR_GLASS = "M348 70C332 44 312 33 288 27L196 26C160 30 120 52 88 70Z";
-function carSvg(k) {
-  const wheel = x => `<circle cx="${x}" cy="116" r="40" style="fill:var(--card-background-color,#222)"/><circle cx="${x}" cy="116" r="34" fill="#17181a"/><circle cx="${x}" cy="116" r="34" fill="none" stroke="#444" stroke-width="2"/>
-      <g class="spin" style="transform-origin:${x}px 116px">${Array.from({ length: 10 }, (_, i) => { const a = i * 36 * Math.PI / 180; return `<line x1="${x + 7 * Math.cos(a)}" y1="${116 + 7 * Math.sin(a)}" x2="${x + 26 * Math.cos(a)}" y2="${116 + 26 * Math.sin(a)}" stroke="#bdbdbd" stroke-width="${i % 2 ? 2 : 4}" stroke-linecap="round"/>`; }).join("")}</g>
-      <circle cx="${x}" cy="116" r="27" fill="none" stroke="#e0e0e0" stroke-width="3"/><circle cx="${x}" cy="116" r="6" fill="#9e9e9e"/>`;
-  return `<svg viewBox="0 0 440 170" class="battsvg car">
-    <defs><clipPath id="cb-${k}"><path d="${CAR_BODY}"/></clipPath><clipPath id="cf-${k}"><rect class="fclip" x="18" y="8" width="0" height="140"/></clipPath>
-      <linearGradient id="cg-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></linearGradient>
-      <linearGradient id="cs-${k}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
-      <linearGradient id="gl-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#cfe8ff" stop-opacity=".55"/><stop offset="1" stop-color="#1b2a38" stop-opacity=".85"/></linearGradient></defs>
-    <ellipse class="cglow" cx="222" cy="156" rx="190" ry="11"/>
-    <line class="cflow" x1="0" x2="215" y1="160" y2="160" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round"/>
-    <g clip-path="url(#cb-${k})"><path d="${CAR_BODY}" fill="currentColor" opacity=".13"/>
-      <rect class="bfill" x="18" y="8" width="0" height="140"/><rect class="bfill" style="fill:url(#cg-${k})" x="18" y="8" width="0" height="140"/>
-      <g clip-path="url(#cf-${k})"><rect class="bsheen" x="-90" y="8" width="90" height="140" fill="url(#cs-${k})"/></g></g>
-    <path d="${CAR_GLASS}" fill="url(#gl-${k})"/><line x1="214" x2="214" y1="26" y2="70" stroke="currentColor" stroke-opacity=".5" stroke-width="3"/>
-    <path d="M26 132C20 126 18 106 21 94C24 86 38 80 62 72C100 52 142 26 192 18C222 14 262 14 294 22C324 30 348 58 364 72C382 78 410 86 420 98C426 106 426 120 422 132L416 140L34 140Z" fill="none" stroke="currentColor" stroke-width="3" opacity=".65" stroke-linejoin="round"/>
-    <path d="M214 70C212 90 212 112 214 128M302 70C300 90 300 112 302 128" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-width="2"/>
-    <path d="M196 84h14M284 84h14" stroke="currentColor" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/>
-    <path d="M356 70l16 2c3 1 3 5-1 6l-14 1z" fill="currentColor" opacity=".55"/>
-    <path d="M60 134L360 134" stroke="currentColor" stroke-opacity=".35" stroke-width="3"/>
-    <path class="clamp" d="M396 92C406 94 414 98 420 104L418 108C410 104 402 101 392 100Z" fill="#fff59d"/>
-    <path class="ctail" d="M21 94C22 90 26 88 30 86L40 84L40 90L26 98Z" fill="#ef5350"/>
-    <circle cx="62" cy="100" r="5" style="fill:var(--card-background-color,#222)" stroke="currentColor" stroke-opacity=".8"/><path class="cbolt" d="M63 94l-5 8h4l-2 7 6-9h-4z" fill="#fff59d"/>
-    <g class="wheels">${wheel(105)}${wheel(372)}</g><g class="bmarks"></g></svg>`;
-}
+const BIMG = { house: "/local/cortex/neovolt-ess.png" };
 function towerSvg(k) {
   const mods = Array.from({ length: 5 }, (_, i) => `<rect x="36" y="${17 + i * 41}" width="108" height="3" style="fill:var(--card-background-color,#222)"/>`).join("");
   const wave = "M-40 0" + Array.from({ length: 12 }, () => " q10 -6 20 0 t20 0").join("");
@@ -1020,11 +943,36 @@ function towerSvg(k) {
     <g class="tflow tup">${[0, 1, 2].map(i => `<path class="tch" style="animation-delay:${-i * 0.55}s" d="M164 200 l8 -9 l8 9" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>
     <g class="bmarks"></g></svg>`;
 }
+// ---- BYD cutaway: battery pack fills to SOC, cable flows while charging -------
+const XR = { img: "/cortex_static/byd-cutaway.jpg", x: 618, y: 372, w: 457, h: 100 };
+function xrayHTML(k) {
+  const cable = "M1440 244C1425 330 1300 350 1232 372S1168 392 1160 420L1078 428";
+  return `<div class="xray"><img src="${XR.img}" alt="BYD Sealion 7" onerror="this.onerror=null;this.src='${EV.img}';this.parentNode.classList.add('nox')">
+    <svg class="xov" viewBox="0 0 1689 608" preserveAspectRatio="xMidYMid meet">
+      <defs><clipPath id="xp-${k}"><rect x="${XR.x}" y="${XR.y}" width="${XR.w}" height="${XR.h}" rx="10"/></clipPath>
+        <linearGradient id="xs-${k}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+        <filter id="xb-${k}" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="9"/></filter></defs>
+      <rect class="xglow" x="${XR.x}" y="${XR.y}" width="${XR.w}" height="${XR.h}" rx="12" filter="url(#xb-${k})"/>
+      <g clip-path="url(#xp-${k})"><rect class="xfill" x="${XR.x}" y="${XR.y}" width="0" height="${XR.h}"/>
+        <rect class="xsheen" x="${XR.x - 140}" y="${XR.y}" width="140" height="${XR.h}" fill="url(#xs-${k})"/></g>
+      <rect class="xedge" x="${XR.x}" y="${XR.y - 6}" width="5" height="${XR.h + 12}" rx="2"/>
+      <line class="xtgt" x1="${XR.x}" x2="${XR.x}" y1="${XR.y - 14}" y2="${XR.y + XR.h + 14}"/>
+      <path class="xcable" d="${cable}"/><path class="xcable xdots" d="${cable}"/>
+      <circle class="xport" cx="1440" cy="244" r="16"/></svg></div>`;
+}
+function xraySet(root, o) {
+  const p = Math.max(0, Math.min(o.pct ?? 0, 100)), w = XR.w * p / 100, col = levelColor(o.pct ?? null);
+  const set = (sel, f) => { const el = root.querySelector(sel); if (el) f(el); };
+  set(".xfill", e => { e.setAttribute("width", w); e.style.fill = col; });
+  set(".xedge", e => { e.setAttribute("x", XR.x + w - 2); e.style.fill = col; });
+  set(".xglow", e => { e.style.fill = col; });
+  set(".xtgt", e => { const t = o.target; e.style.opacity = t === null || t === undefined ? 0 : 1; if (t !== null && t !== undefined) { const x = XR.x + XR.w * Math.max(0, Math.min(t, 100)) / 100; e.setAttribute("x1", x); e.setAttribute("x2", x); } });
+  root.style.setProperty("--bc", col);
+  root.classList.toggle("plug", !!(o.plugged || o.charging)); root.classList.toggle("chg", !!o.charging);
+}
 function battHTML(key, label) {
   return `<div class="batt ${key === "ev" ? "carw" : "towerw"}" data-b="${key}">
-    <div class="bstage">${key === "ev" ? carSvg(key) : towerSvg(key)}
-      <div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div></div></div>
-    ${key === "ev" ? `<div class="bbar" hidden><i></i><span class="bmk"></span></div>` : ""}
+    <div class="bstage">${key === "ev" ? xrayHTML(key) : towerSvg(key) + `<div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div></div>`}</div>
     <div class="battmeta"><span class="bbig"></span><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
 }
 function cutout(im) {
@@ -1053,10 +1001,9 @@ function battImg(root) {
   im.onload = () => {
     root._img = "ok";
     const wrap = root.querySelector(".bimg"), pic = wrap.querySelector("img");
-    const plain = key === "ev", src = plain ? BIMG.ev : (cutout(im) || BIMG[key]);
+    const src = cutout(im) || BIMG[key];
     pic.src = src; wrap.style.setProperty("--m", `url("${src}")`);
     wrap.hidden = false; root.querySelector(".battsvg").style.display = "none"; root.classList.add("photo");
-    if (plain) { root._img = "plain"; wrap.classList.add("plain"); root.querySelector(".bbar").hidden = false; }
     if (root._last) battSet(root, root._last);
   };
   im.onerror = () => { root._img = "no"; };
@@ -1064,18 +1011,13 @@ function battImg(root) {
 }
 function battSet(root, o) {
   if (!root) return;
-  root._last = o; battImg(root);
+  root._last = o; if (root.dataset.b !== "ev") battImg(root);
   const pct = o.pct === null || o.pct === undefined ? null : Math.max(0, Math.min(o.pct, 100)), p = pct ?? 0, col = levelColor(pct), ev = root.dataset.b === "ev";
   root.classList.toggle("plug", !!(o.plugged || o.charging)); root.classList.toggle("chg", !!o.charging); root.classList.toggle("dis", !!o.discharging); root.style.setProperty("--bc", col);
   root.querySelector(".bbig").textContent = pct === null ? "–" : Math.round(pct) + "%";
   root.querySelector(".bsub").textContent = o.sub || "";
   const marks = (o.marks || []).filter(m => m.pct !== null && m.pct !== undefined);
-  if (root._img === "plain") {
-    const bar = root.querySelector(".bbar");
-    bar.querySelector("i").style.width = p + "%";
-    bar.querySelector(".bmk").innerHTML = marks.map(m => `<u title="${esc(m.label)} ${Math.round(m.pct)}%" style="left:${m.pct}%;background:${m.color}"></u>`).join("");
-    return;
-  }
+  if (ev) { xraySet(root, { pct, target: marks.length ? marks[0].pct : null, plugged: o.plugged, charging: o.charging }); return; }
   if (root._img === "ok") {
     const wrap = root.querySelector(".bimg");
     wrap.style.setProperty(ev ? "--r" : "--t", (100 - p) + "%");
@@ -1182,7 +1124,7 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .stage{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(240px,1fr)}
 .carbox{position:relative;min-height:360px;padding:54px 0 84px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(120% 90% at 50% 38%,color-mix(in srgb,var(--primary-color) 22%,transparent),transparent 70%),linear-gradient(180deg,transparent,#0003)}
-.carbox img{max-width:88%;max-height:230px;object-fit:contain;filter:drop-shadow(0 18px 18px #0006);position:relative;z-index:1}
+.carbox .carglow{display:none}
 .carglow{position:absolute;left:12%;right:12%;bottom:62px;height:26px;border-radius:50%;background:radial-gradient(closest-side,#66bb6a88,transparent);opacity:0;transition:opacity .6s}
 .carglow.on{opacity:1;animation:glow 2s ease-in-out infinite}
 .cartop{position:absolute;top:14px;left:18px;right:18px;display:flex;justify-content:space-between;align-items:center;z-index:2}
@@ -1191,8 +1133,6 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .barbg{position:relative;height:12px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);overflow:visible}
 .barbg i{position:absolute;left:0;top:0;bottom:0;border-radius:7px;transition:width .8s,background .4s;box-shadow:0 0 12px currentColor}
 .barbg i.chg{background-image:repeating-linear-gradient(115deg,#ffffff45 0 9px,transparent 9px 18px);background-size:36px 100%;animation:stripes .8s linear infinite}@keyframes stripes{to{background-position:36px 0}}
-.carbox.plug img{filter:drop-shadow(0 8px 22px #ffa726cc) drop-shadow(0 0 6px #ffa72688)}
-.carbox.chg img{animation:carpulse2 2.2s ease-in-out infinite}@keyframes carpulse2{0%,100%{filter:drop-shadow(0 8px 18px #66bb6a99) drop-shadow(0 0 4px #66bb6a66)}50%{filter:drop-shadow(0 10px 32px #66bb6aee) drop-shadow(0 0 14px #66bb6acc)}}
 .carglow.on:not(.chg){background:radial-gradient(closest-side,#ffa72688,transparent)}
 .barbg u{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1px;border-radius:2px;background:#ef6c00;text-decoration:none}
 .barlbl{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px}.barlbl b{font-size:22px}
@@ -1231,13 +1171,18 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
   background:linear-gradient(105deg,var(--bc) 0 40%,color-mix(in srgb,var(--bc) 55%,#fff) 50%,var(--bc) 60% 100%);background-size:250% 100%;transition:clip-path 1s ease}
 .carw .bfl{clip-path:inset(0 var(--r,100%) 0 0)}.towerw .bfl{clip-path:inset(var(--t,100%) 0 0 0)}
 .chg .bfl{animation:photo 2.2s linear infinite}@keyframes photo{from{background-position:150% 0}to{background-position:-50% 0}}
-.bimg.plain img{filter:drop-shadow(0 14px 14px #0006);opacity:1}.bimg.plain .bfl,.bimg.plain .bimk{display:none}
-.plug .bimg.plain img{filter:drop-shadow(0 8px 20px #ffa726cc)}
-.chg .bimg.plain img{animation:carpulse 2.2s ease-in-out infinite}@keyframes carpulse{0%,100%{filter:drop-shadow(0 8px 16px #66bb6a99)}50%{filter:drop-shadow(0 10px 30px #66bb6aee) drop-shadow(0 0 12px #66bb6acc)}}
-.bbar{position:relative;width:100%;height:12px;border-radius:6px;background:var(--divider-color);margin:12px auto 4px;max-width:380px;overflow:hidden}
-.bbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--bc);border-radius:6px;transition:width 1s}
-.chg .bbar i{background-image:repeating-linear-gradient(115deg,#ffffff45 0 9px,transparent 9px 18px);background-size:36px 100%;animation:stripes .8s linear infinite}
-.bbar u{position:absolute;top:0;bottom:0;width:3px}
+.xray{position:relative;width:min(calc(100% - 36px),780px);margin:0 auto;border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#fff,#e8ecef);z-index:1;box-shadow:0 10px 30px #0005;transition:box-shadow .6s}
+.xray img{display:block;width:100%;height:auto}.xray.nox img{padding:10px;box-sizing:border-box;object-fit:contain}.xray.nox .xov{display:none}
+.xov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.xfill{fill:var(--bc,#66bb6a);mix-blend-mode:multiply;opacity:.8;transition:width 1s}.xedge{fill:var(--bc,#66bb6a);opacity:0;filter:drop-shadow(0 0 6px var(--bc,#66bb6a));transition:x 1s}
+.xglow{fill:var(--bc,#66bb6a);opacity:0}.xsheen{opacity:0}.xtgt{stroke:#ef6c00;stroke-width:4;stroke-dasharray:8 6;opacity:0}
+.xcable{fill:none;stroke:#ffa726;stroke-width:7;stroke-linecap:round;opacity:0}.xdots{stroke:#fff;stroke-width:4;stroke-dasharray:2 22}
+.xport{fill:#ffa726;opacity:0}
+.plug .xray{box-shadow:0 0 34px #ffa726aa,0 10px 30px #0005}.plug .xport{opacity:.9;animation:xpulse 2s ease-in-out infinite}.plug .xedge{opacity:.9}.plug .xcable:not(.xdots){opacity:.45}
+.chg .xray{animation:xglow 2.2s ease-in-out infinite}.chg .xport{fill:#43c463}.chg .xcable:not(.xdots){stroke:#43c463;opacity:.85}.chg .xdots{opacity:1;animation:xdash .9s linear infinite}
+.chg .xsheen{opacity:1;animation:xsweep 2.2s linear infinite}.chg .xglow{animation:xgl 1.6s ease-in-out infinite}
+@keyframes xpulse{50%{opacity:.35;r:22}}@keyframes xdash{to{stroke-dashoffset:-48}}@keyframes xsweep{from{transform:translateX(0)}to{transform:translateX(640px)}}
+@keyframes xgl{0%,100%{opacity:.15}50%{opacity:.7}}@keyframes xglow{0%,100%{box-shadow:0 0 22px #43c46399,0 10px 30px #0005}50%{box-shadow:0 0 46px #43c463ee,0 10px 30px #0005}}
 .bimk{position:absolute;inset:0;pointer-events:none}.bimk i{position:absolute;opacity:.9}
 .battmeta{display:flex;flex-direction:column;align-items:center;text-align:center;font-size:13px;gap:2px}
 .battmeta b{font-size:15px}.bbig{font-size:34px;font-weight:700;line-height:1.1;color:var(--bc)}
