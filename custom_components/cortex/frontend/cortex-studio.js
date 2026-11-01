@@ -847,25 +847,32 @@ function barChart(days, series, o = {}) {
 const levelColor = p => (p === null ? "#757575" : p < 20 ? C.peak : p < 40 ? C.off_peak : C.shoulder);
 // Drop transparent PNGs here to replace the drawings: /config/www/cortex/<name>.png
 const BIMG = { house: "/local/cortex/neovolt-ess.png", ev: "/local/cortex/byd-sealion-7.png" };
-const CAR_BODY = "M28 128C28 112 36 106 52 104L78 100C86 84 104 62 140 54L240 50C276 50 300 64 322 90L366 100C384 104 394 112 394 126L394 138L28 138Z";
-
+const CAR_BODY = "M26 132C20 126 18 106 21 94C24 86 38 80 62 72C100 52 142 26 192 18C222 14 262 14 294 22C324 30 348 58 364 72C382 78 410 86 420 98C426 106 426 120 422 132L416 140L34 140Z";
+const CAR_GLASS = "M348 70C332 44 312 33 288 27L196 26C160 30 120 52 88 70Z";
 function carSvg(k) {
-  return `<svg viewBox="0 0 420 170" class="battsvg car">
-    <defs><clipPath id="cb-${k}"><path d="${CAR_BODY}"/></clipPath><clipPath id="cf-${k}"><rect class="fclip" x="20" y="40" width="0" height="110"/></clipPath>
-      <linearGradient id="cg-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".4"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".25"/></linearGradient>
-      <linearGradient id="cs-${k}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
-    <ellipse class="cglow" cx="210" cy="148" rx="170" ry="12"/>
-    <line class="cflow" x1="0" x2="200" y1="152" y2="152" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round"/>
-    <g clip-path="url(#cb-${k})"><path d="${CAR_BODY}" fill="currentColor" opacity=".12"/>
-      <rect class="bfill" x="20" y="40" width="0" height="110"/><rect class="bfill" style="fill:url(#cg-${k})" x="20" y="40" width="0" height="110"/>
-      <g clip-path="url(#cf-${k})"><rect class="bsheen" x="-80" y="40" width="80" height="110" fill="url(#cs-${k})"/></g></g>
-    <path d="${CAR_BODY}" fill="none" stroke="currentColor" stroke-width="3" opacity=".6" stroke-linejoin="round"/>
-    <path d="M112 92C118 77 132 66 152 62L236 60C262 60 282 72 298 92Z" style="fill:var(--card-background-color,#222)" opacity=".62" stroke="currentColor" stroke-opacity=".35"/>
-    <line x1="205" x2="205" y1="61" y2="92" stroke="currentColor" opacity=".35"/>
-    <path class="clamp" d="M384 112L394 116L394 123L384 121Z" fill="#fff59d"/>
-    <circle cx="46" cy="110" r="5" style="fill:var(--card-background-color,#222)" stroke="currentColor" opacity=".8"/><path class="cbolt" d="M47 104l-5 8h4l-2 7 6-9h-4z" fill="#fff59d"/>
-    <g class="wheels">${[100, 322].map(x => `<circle cx="${x}" cy="138" r="32" style="fill:var(--card-background-color,#222)"/><circle cx="${x}" cy="138" r="26" fill="#1c1c1c" stroke="currentColor" stroke-opacity=".5" stroke-width="2"/><g class="spin" style="transform-origin:${x}px 138px"><circle cx="${x}" cy="138" r="14" fill="#9e9e9e"/>${[0, 72, 144, 216, 288].map(a => `<line x1="${x}" y1="138" x2="${x + 14 * Math.cos(a * Math.PI / 180)}" y2="${138 + 14 * Math.sin(a * Math.PI / 180)}" stroke="#555" stroke-width="3"/>`).join("")}</g><circle cx="${x}" cy="138" r="4" fill="#333"/>`).join("")}</g>
-    <g class="bmarks"></g></svg>`;
+  const wheel = x => `<circle cx="${x}" cy="116" r="40" style="fill:var(--card-background-color,#222)"/><circle cx="${x}" cy="116" r="34" fill="#17181a"/><circle cx="${x}" cy="116" r="34" fill="none" stroke="#444" stroke-width="2"/>
+      <g class="spin" style="transform-origin:${x}px 116px">${Array.from({ length: 10 }, (_, i) => { const a = i * 36 * Math.PI / 180; return `<line x1="${x + 7 * Math.cos(a)}" y1="${116 + 7 * Math.sin(a)}" x2="${x + 26 * Math.cos(a)}" y2="${116 + 26 * Math.sin(a)}" stroke="#bdbdbd" stroke-width="${i % 2 ? 2 : 4}" stroke-linecap="round"/>`; }).join("")}</g>
+      <circle cx="${x}" cy="116" r="27" fill="none" stroke="#e0e0e0" stroke-width="3"/><circle cx="${x}" cy="116" r="6" fill="#9e9e9e"/>`;
+  return `<svg viewBox="0 0 440 170" class="battsvg car">
+    <defs><clipPath id="cb-${k}"><path d="${CAR_BODY}"/></clipPath><clipPath id="cf-${k}"><rect class="fclip" x="18" y="8" width="0" height="140"/></clipPath>
+      <linearGradient id="cg-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></linearGradient>
+      <linearGradient id="cs-${k}"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <linearGradient id="gl-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#cfe8ff" stop-opacity=".55"/><stop offset="1" stop-color="#1b2a38" stop-opacity=".85"/></linearGradient></defs>
+    <ellipse class="cglow" cx="222" cy="156" rx="190" ry="11"/>
+    <line class="cflow" x1="0" x2="215" y1="160" y2="160" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round"/>
+    <g clip-path="url(#cb-${k})"><path d="${CAR_BODY}" fill="currentColor" opacity=".13"/>
+      <rect class="bfill" x="18" y="8" width="0" height="140"/><rect class="bfill" style="fill:url(#cg-${k})" x="18" y="8" width="0" height="140"/>
+      <g clip-path="url(#cf-${k})"><rect class="bsheen" x="-90" y="8" width="90" height="140" fill="url(#cs-${k})"/></g></g>
+    <path d="${CAR_GLASS}" fill="url(#gl-${k})"/><line x1="214" x2="214" y1="26" y2="70" stroke="currentColor" stroke-opacity=".5" stroke-width="3"/>
+    <path d="M26 132C20 126 18 106 21 94C24 86 38 80 62 72C100 52 142 26 192 18C222 14 262 14 294 22C324 30 348 58 364 72C382 78 410 86 420 98C426 106 426 120 422 132L416 140L34 140Z" fill="none" stroke="currentColor" stroke-width="3" opacity=".65" stroke-linejoin="round"/>
+    <path d="M214 70C212 90 212 112 214 128M302 70C300 90 300 112 302 128" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-width="2"/>
+    <path d="M196 84h14M284 84h14" stroke="currentColor" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/>
+    <path d="M356 70l16 2c3 1 3 5-1 6l-14 1z" fill="currentColor" opacity=".55"/>
+    <path d="M60 134L360 134" stroke="currentColor" stroke-opacity=".35" stroke-width="3"/>
+    <path class="clamp" d="M396 92C406 94 414 98 420 104L418 108C410 104 402 101 392 100Z" fill="#fff59d"/>
+    <path class="ctail" d="M21 94C22 90 26 88 30 86L40 84L40 90L26 98Z" fill="#ef5350"/>
+    <circle cx="62" cy="100" r="5" style="fill:var(--card-background-color,#222)" stroke="currentColor" stroke-opacity=".8"/><path class="cbolt" d="M63 94l-5 8h4l-2 7 6-9h-4z" fill="#fff59d"/>
+    <g class="wheels">${wheel(105)}${wheel(372)}</g><g class="bmarks"></g></svg>`;
 }
 function towerSvg(k) {
   const mods = Array.from({ length: 5 }, (_, i) => `<rect x="36" y="${17 + i * 41}" width="108" height="3" style="fill:var(--card-background-color,#222)"/>`).join("");
@@ -889,6 +896,25 @@ function battHTML(key, label) {
       <div class="bimg" hidden><img alt=""><div class="bfl"></div><div class="bimk"></div></div></div>
     <div class="battmeta"><span class="bbig"></span><b>${esc(label)}</b><span class="muted bsub"></span></div></div>`;
 }
+function cutout(im) {
+  try {
+    const W = Math.min(im.naturalWidth, 720), H = Math.round(im.naturalHeight * W / im.naturalWidth);
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const cx = cv.getContext("2d", { willReadFrequently: true }); cx.drawImage(im, 0, 0, W, H);
+    const img = cx.getImageData(0, 0, W, H), d = img.data;
+    if (d[3] < 200 || d[(W - 1) * 4 + 3] < 200) return null; // already transparent
+    const px = (x, y) => (y * W + x) * 4, corners = [[0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1]].map(([x, y]) => [d[px(x, y)], d[px(x, y) + 1], d[px(x, y) + 2]]);
+    const ref = [0, 1, 2].map(c => corners.reduce((a, k) => a + k[c], 0) / 4), tol = 46, seen = new Uint8Array(W * H), q = [];
+    const near = i => { const j = i * 4; return Math.hypot(d[j] - ref[0], d[j + 1] - ref[1], d[j + 2] - ref[2]) < tol; };
+    const push = i => { if (!seen[i] && near(i)) { seen[i] = 1; q.push(i); } };
+    for (let x = 0; x < W; x++) { push(x); push((H - 1) * W + x); }
+    for (let y = 0; y < H; y++) { push(y * W); push(y * W + W - 1); }
+    while (q.length) { const i = q.pop(), x = i % W, y = (i / W) | 0; if (x > 0) push(i - 1); if (x < W - 1) push(i + 1); if (y > 0) push(i - W); if (y < H - 1) push(i + W); }
+    let n = 0; for (let i = 0; i < seen.length; i++) if (seen[i]) { d[i * 4 + 3] = 0; n++; }
+    const frac = n / seen.length; if (frac < 0.15 || frac > 0.92) return null;
+    cx.putImageData(img, 0, 0); return cv.toDataURL("image/png");
+  } catch (e) { return null; }
+}
 function battImg(root) {
   if (root._img !== undefined) return;
   root._img = "pending";
@@ -896,7 +922,8 @@ function battImg(root) {
   im.onload = () => {
     root._img = "ok";
     const wrap = root.querySelector(".bimg"), pic = wrap.querySelector("img");
-    pic.src = BIMG[key]; wrap.style.setProperty("--m", `url("${BIMG[key]}")`);
+    const src = cutout(im) || BIMG[key];
+    pic.src = src; wrap.style.setProperty("--m", `url("${src}")`);
     wrap.hidden = false; root.querySelector(".battsvg").style.display = "none"; root.classList.add("photo");
     if (root._last) battSet(root, root._last);
   };
@@ -919,9 +946,9 @@ function battSet(root, o) {
   }
   root.querySelectorAll(".bfill").forEach((r, i) => { if (!i || r.classList.contains("twv") || r.classList.contains("tfl")) r.style.fill = col; });
   if (ev) {
-    const w = 372 * p / 100;
+    const w = 406 * p / 100;
     root.querySelectorAll(".bfill").forEach(r => { r.style.width = w + "px"; }); root.querySelector(".fclip").style.width = w + "px";
-    root.querySelector(".bmarks").innerHTML = marks.map(m => { const x = 20 + 372 * m.pct / 100; return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="${x}" x2="${x}" y1="40" y2="150" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="${x}" cy="40" r="4" fill="${m.color}"/></g>`; }).join("");
+    root.querySelector(".bmarks").innerHTML = marks.map(m => { const x = 18 + 406 * m.pct / 100; return `<g><title>${esc(m.label)} ${Math.round(m.pct)}%</title><line x1="${x}" x2="${x}" y1="8" y2="148" stroke="${m.color}" stroke-width="3" stroke-dasharray="5 3"/><circle cx="${x}" cy="8" r="4" fill="${m.color}"/></g>`; }).join("");
   } else {
     const h = 206 * p / 100, y = 220 - h;
     const tf = root.querySelector(".tfl"); tf.style.y = y + "px"; tf.style.height = h + "px";
@@ -1046,7 +1073,7 @@ input[type=time]{background:var(--card-background-color);color:inherit;border:1p
 .cglow{fill:var(--bc);opacity:0;filter:blur(8px)}.chg .cglow{opacity:.5;animation:glow 2s ease-in-out infinite}
 .cflow{stroke:var(--bc);opacity:0}.chg .cflow{opacity:.8;animation:dashmove 0.8s linear infinite}@keyframes dashmove{to{stroke-dashoffset:-16}}
 .cbolt{opacity:0}.chg .cbolt{animation:pulse 1.1s ease-in-out infinite}@keyframes pulse{50%{opacity:1}0%,100%{opacity:.15}}
-.clamp{opacity:.25}.chg .clamp{opacity:.9}
+.ctail{opacity:.55}.chg .ctail{opacity:1}.clamp{opacity:.25}.chg .clamp{opacity:.9}
 .spin{animation:none}.chg .spin{animation:none}
 .twaveg{animation:wavex 2.4s linear infinite}@keyframes wavex{to{transform:translateX(40px)}}
 .twrap{transition:transform 1s ease}
