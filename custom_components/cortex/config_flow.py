@@ -65,6 +65,7 @@ SECTIONS: dict[str, dict[str, Any]] = {
         ),
         CONF_AP_LLM: sel.BooleanSelector(),
         CONF_AP_NIGHT: _num(0.1, 0.7, 0.01, "of daily use"),
+        CONF_AP_TIMEOUT: _num(10, 600, 5, "s"),
         CONF_AGENT: sel.ConversationAgentSelector(),
         CONF_AI_PER_HOUR: _num(0, 120, 1, "calls/h"),
     },

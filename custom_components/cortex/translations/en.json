@@ -131,7 +131,8 @@
           "autopilot_use_ai": "Ask the conversation agent (otherwise rules only)",
           "autopilot_night_share": "Share of daily use that happens overnight",
           "conversation_agent": "Local model / conversation agent",
-          "ai_per_hour": "Max AI calls per hour"
+          "ai_per_hour": "Max AI calls per hour",
+          "autopilot_timeout": "Wait for the model up to (then use rules)"
         }
       }
     }

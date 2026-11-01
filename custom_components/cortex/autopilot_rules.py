@@ -138,7 +138,7 @@ def prompt(window: str, ctx: dict[str, Any], base: dict[str, Any]) -> str:
     return (
         "You are the energy planner for an Australian home on an AGL time-of-use plan. Rates are cents per kWh. "
         "Buying in the shoulder window is cheap; exporting in the evening pays the feed-in rate; "
-        "never let the battery run flat before morning. Do not call tools. "
+        "never let the battery run flat before morning. Do not call tools. Do not think at length: answer immediately with the JSON. "
         f"{ask} Data: {data} Rule-based suggestion: {json.dumps(base)}"
     )
 

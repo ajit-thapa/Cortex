@@ -17,6 +17,7 @@ from .const import (
     CONF_AP_LLM,
     CONF_AP_MODE,
     CONF_AP_NIGHT,
+    CONF_AP_TIMEOUT,
     CONF_BATTERY_KWH,
     CONF_EV_KWH,
     CONF_EXPORT_FLOOR,
@@ -31,7 +32,7 @@ from .feature import Feature
 _LOGGER = logging.getLogger(__name__)
 DEFAULT_LOAD = 22.0  # kWh/day when no history exists yet
 KEEP = 40
-MODEL_TIMEOUT = 45  # seconds; a slow local model must never hold up a decision
+DEFAULT_TIMEOUT = 150  # seconds; a slow local model must never hold up a decision
 
 
 class Autopilot(Feature):
@@ -153,10 +154,11 @@ class Autopilot(Feature):
         raw = None
         if brain.opts.get(CONF_AP_LLM) and brain.ai_allowed():
             try:
-                async with asyncio.timeout(MODEL_TIMEOUT):
+                limit = float(brain.opts.get(CONF_AP_TIMEOUT) or DEFAULT_TIMEOUT)
+                async with asyncio.timeout(limit):
                     raw = rules.parse(await brain.ask_agent(rules.prompt(window, ctx, base)))
             except TimeoutError:
-                _LOGGER.warning("Autopilot model gave no answer in %ss, using rules", MODEL_TIMEOUT)
+                _LOGGER.warning("Autopilot model gave no answer in %ss, using rules", limit)
             except HomeAssistantError as err:
                 _LOGGER.warning("Autopilot model call failed: %s", err)
         decision = rules.validate(window, raw, ctx, base)

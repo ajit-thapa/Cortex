@@ -41,6 +41,7 @@ CONF_LEARN = "learn_entities"
 CONF_AP_MODE = "autopilot_mode"  # off | shadow | auto
 CONF_AP_LLM = "autopilot_use_ai"
 CONF_AP_NIGHT = "autopilot_night_share"
+CONF_AP_TIMEOUT = "autopilot_timeout"
 AP_MODES = ["off", "shadow", "auto"]
 
 # Energy Studio panel: live power sources and daily energy totals
@@ -118,6 +119,7 @@ DEFAULTS: dict[str, object] = {
     CONF_AP_MODE: "shadow",
     CONF_AP_LLM: True,
     CONF_AP_NIGHT: 0.35,
+    CONF_AP_TIMEOUT: 150,
     CONF_ST_PV: "sensor.sungrow_pv",
     CONF_ST_GRID: "sensor.neovolt_online_grid",
     CONF_ST_BATT: "sensor.neovolt_online_battery_power",
