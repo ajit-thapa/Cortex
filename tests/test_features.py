@@ -506,7 +506,10 @@ async def test_ev_guard_keeps_battery_for_the_house(hass: HomeAssistant):
     assert await en.ev_guard(evening) == "trickle"
     assert ("number", "set_value", {"entity_id": o["dispatch_power"], "value": 8.2}) in sent
     assert "needed for the house" in en.ev_guard_note
-    snap = en.snapshot()
+    from unittest.mock import patch
+
+    with patch("homeassistant.util.dt.now", return_value=evening):  # budget is judged at the clock time
+        snap = en.snapshot()
     assert snap["budget"] and snap["budget"]["ok"] is False
 
 
